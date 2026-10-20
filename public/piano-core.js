@@ -257,6 +257,31 @@
   // Clean passes in a row that finish a practice loop.
   var LOOP_CLEAN = 3;
 
+  // The notes a session asks for and the hand mode and loop that apply: mine are the chosen hand's
+  // notes inside the loop (idx holds their indexes in song.notes), other the other hand's notes.
+  function partNotes(song, opts) {
+    var hand = song.beatsPerBar ? playHand(song, opts.hand) : "both";
+    var loop = song.beatsPerBar ? clampLoop(song, opts.loop) : null;
+    var lo = loop ? (loop.from - 1) * song.beatsPerBar : -Infinity, hi = loop ? loop.to * song.beatsPerBar : Infinity;
+    var mine = [], idx = [], other = [];
+    for (var i = 0; i < song.notes.length; i++) {
+      var n = song.notes[i];
+      if (hand === "both" || (n.hand || "right") === hand) { if (n.start >= lo - 1e-6 && n.start < hi - 1e-6) { mine.push(n); idx.push(i); } }
+      else other.push(n);
+    }
+    return { hand: hand, loop: loop, lo: lo, hi: hi, mine: mine, idx: idx, other: other };
+  }
+
+  // True when note is one of the other hand's notes sounding at beat, or starting up to early beats
+  // after it: it may be played along without penalty. same compares two notes.
+  function otherSounding(other, note, beat, early, same) {
+    for (var i = 0; i < other.length; i++) {
+      var o = other[i];
+      if (same(o.note, note) && o.start <= beat + early + 1e-6 && o.start + o.length > beat + 1e-6) return true;
+    }
+    return false;
+  }
+
   // Wait-mode session: the song only advances when every note of the current step has been
   // struck since that step came up. Repeated notes must be struck again.
   // opts.hand: "right" | "left" | "both" (default): in one-hand mode the other hand's notes are not
@@ -271,16 +296,8 @@
   // are ignored instead of counted wrong.
   function createSession(song, opts) {
     opts = opts || {};
-    var hand = song.beatsPerBar ? playHand(song, opts.hand) : "both";
-    var loop = song.beatsPerBar ? clampLoop(song, opts.loop) : null;
-    var lo = loop ? (loop.from - 1) * song.beatsPerBar : -Infinity, hi = loop ? loop.to * song.beatsPerBar : Infinity;
-    var mine = [], other = [];
-    for (var i = 0; i < song.notes.length; i++) {
-      var n = song.notes[i];
-      if (hand === "both" || (n.hand || "right") === hand) { if (n.start >= lo - 1e-6 && n.start < hi - 1e-6) mine.push(n); }
-      else other.push(n);
-    }
-    var steps = buildSteps(mine);
+    var part = partNotes(song, opts), hand = part.hand, loop = part.loop, hi = part.hi, other = part.other;
+    var steps = buildSteps(part.mine);
     var s = {
       steps: steps,
       hand: hand,
@@ -377,6 +394,166 @@
     return s;
   }
 
+  // ---------- tempo mode ----------
+
+  // Tempo mode plays the song at a set share of its tempo and does not wait. Each note is judged by
+  // when it is struck: within TEMPO_ON_MS of its time it is on time, within TEMPO_WINDOW_MS early or
+  // late, and a note not struck by the end of its window is missed.
+  var TEMPO_WINDOW_MS = 300, TEMPO_ON_MS = 110;
+  var SPEED_MIN = 50, SPEED_MAX = 100, SPEED_STEP = 5;
+
+  // A tempo-mode speed in percent of the song's tempo: SPEED_MIN-SPEED_MAX in SPEED_STEP steps.
+  function clampSpeed(pct) {
+    var v = Math.round(Number(pct) / SPEED_STEP) * SPEED_STEP;
+    return isFinite(v) ? Math.max(SPEED_MIN, Math.min(SPEED_MAX, v)) : SPEED_MAX;
+  }
+
+  // The count-in shown before start: 1 to beats while clock is in the bar before start, else 0.
+  function countIn(clock, start, beats) {
+    if (!(clock >= start - beats - 1e-6) || clock >= start) return 0;
+    return Math.min(beats, Math.floor(clock - (start - beats) + 1e-6) + 1);
+  }
+
+  // Tempo-mode session. opts.hand and opts.loop work as in wait mode; opts.speed is the percent of
+  // the song's tempo. The page runs the clock (in beats) and calls press(note, beat) for each key and
+  // tick(beat) every frame. range.start is the bar line the song (or loop) starts on, range.countIn
+  // the beats of count-in before it and noteCount the notes in a pass. judged maps an index in
+  // song.notes to "on time", "early", "late" or "miss". A loop pass with no miss and no wrong key is
+  // clean; LOOP_CLEAN in a row finish it. opts.tolerant (or s.setTolerant()) is mic mode as in wait
+  // mode: only the top note of each chord is played and judged, the right note name an octave up or
+  // down counts, and the chord's other notes are ignored instead of counted wrong.
+  function createTempoSession(song, opts) {
+    opts = opts || {};
+    var part = partNotes(song, opts), loop = part.loop, other = part.other;
+    var speed = clampSpeed(opts.speed), bpb = song.beatsPerBar || 4;
+    var beatMs = 60000 / (song.bpm * speed / 100), win = TEMPO_WINDOW_MS / beatMs, onTime = TEMPO_ON_MS / beatMs;
+    var notes = part.mine, idx = part.idx, last = 0, end = 0;
+    for (var i = 0; i < notes.length; i++) { last = Math.max(last, notes[i].start); end = Math.max(end, notes[i].start + notes[i].length); }
+    // The top note of the chord each note belongs to, for mic mode.
+    var top = [];
+    for (var t = 0; t < notes.length; t++) {
+      var hiNote = notes[t].note;
+      for (var u = 0; u < notes.length; u++) if (Math.abs(notes[u].start - notes[t].start) < 1e-6) hiNote = Math.max(hiNote, notes[u].note);
+      top.push(hiNote);
+    }
+    var first = notes.length ? notes[0].start : 0;
+    if (loop) end = part.hi;
+    // The pass (or the song) is over once the last note's window has closed and its bars have played.
+    var finish = Math.max(end, last + win);
+    var s = {
+      tempo: true,
+      hand: part.hand,
+      loop: loop,
+      speed: speed,
+      beatMs: beatMs,
+      window: win,
+      noteCount: notes.length,
+      range: { start: loop ? part.lo : Math.floor(first / bpb + 1e-6) * bpb, end: end, countIn: bpb },
+      judged: {},
+      lastTiming: null,
+      cleanNeeded: LOOP_CLEAN,
+      tolerant: !!opts.tolerant,
+    };
+    s.setTolerant = function (on) { s.tolerant = !!on; };
+    function same(a, b) { return a === b || (s.tolerant && Math.abs(a - b) <= 12 && (a - b) % 12 === 0); }
+    // In mic mode only a chord's top note is played.
+    function counts(j) { return !s.tolerant || notes[j].note === top[j]; }
+    function pending(j) { return counts(j) && !s.judged[idx[j]]; }
+    // The earliest chord still to be played, shaped like a wait-mode step.
+    s.current = function () {
+      if (s.done) return null;
+      var st = null;
+      for (var j = 0; j < notes.length; j++) {
+        if (!pending(j)) continue;
+        var n = notes[j];
+        if (!st) st = { start: n.start, notes: [], hands: {}, fingers: {} };
+        else if (n.start > st.start + 1e-6) break;
+        if (st.notes.indexOf(n.note) < 0) {
+          st.notes.push(n.note); st.hands[n.note] = n.hand || "right";
+          if (n.finger) st.fingers[n.note] = n.finger;
+        }
+      }
+      return st;
+    };
+    s.waitingFor = function () { var st = s.current(); return st ? st.notes : []; };
+    s.needed = s.waitingFor;
+    s.accuracy = function () {
+      var total = s.correct + s.wrong + s.missed;
+      return total ? s.correct / total : 1;
+    };
+    // Returns { result: "hit", timing, ms } (ms early < 0 < late), { result: "wrong", hint, target }
+    // or { result: "ignored" }. Keys before the count-in ends are ignored, as are the other hand's
+    // notes while they sound and a note struck again while it still sounds after a hit.
+    s.press = function (note, beat) {
+      if (s.done || beat < s.range.start - win) return { result: "ignored" };
+      var best = -1;
+      for (var j = 0; j < notes.length; j++) {
+        if (!same(notes[j].note, note) || !pending(j) || Math.abs(notes[j].start - beat) > win + 1e-9) continue;
+        // The exact key wins over the same name an octave away, then the nearest in time.
+        var better = best < 0 || (notes[j].note === note) > (notes[best].note === note) ||
+          ((notes[j].note === note) === (notes[best].note === note) && Math.abs(notes[j].start - beat) < Math.abs(notes[best].start - beat));
+        if (better) best = j;
+      }
+      if (best >= 0) {
+        var d = beat - notes[best].start, timing = Math.abs(d) <= onTime ? "on time" : d < 0 ? "early" : "late";
+        s.judged[idx[best]] = timing;
+        s.correct++; s.streak++;
+        if (s.streak > s.bestStreak) s.bestStreak = s.streak;
+        if (timing === "on time") s.onTime++; else if (timing === "early") s.early++; else s.late++;
+        s.lastTiming = { timing: timing, ms: Math.round(d * beatMs) };
+        s.lastWrong = null;
+        return { result: "hit", timing: timing, ms: s.lastTiming.ms };
+      }
+      for (var k = 0; k < notes.length; k++) {
+        var h = notes[k];
+        var sounding = h.start - win <= beat && beat < h.start + h.length;
+        if (same(h.note, note) && counts(k) && s.judged[idx[k]] && s.judged[idx[k]] !== "miss" && sounding) return { result: "ignored" };
+        if (s.tolerant && !counts(k) && same(h.note, note) && sounding) return { result: "ignored" };
+      }
+      if (otherSounding(other, note, beat, win, same)) return { result: "ignored", other: true };
+      s.wrong++; s.passWrong++; s.streak = 0;
+      s.wrongKeys[note] = (s.wrongKeys[note] || 0) + 1;
+      var want = s.waitingFor(), target = want.length ? want[0] : note;
+      for (var w = 1; w < want.length; w++) if (Math.abs(want[w] - note) < Math.abs(target - note)) target = want[w];
+      s.lastWrong = { note: note, target: target, hint: hint(note, target) };
+      return { result: "wrong", hint: s.lastWrong.hint, target: target };
+    };
+    // Called as the clock moves: returns { misses: [note, ...], result?: "pass" | "done", clean? }.
+    // On "pass" the loop starts over: the page runs the count-in again before range.start.
+    s.tick = function (beat) {
+      var misses = [];
+      if (s.done) return { misses: misses };
+      for (var j = 0; j < notes.length; j++) {
+        if (pending(j) && notes[j].start + win < beat) {
+          s.judged[idx[j]] = "miss";
+          s.missed++; s.passMissed++; s.streak = 0;
+          misses.push(notes[j].note);
+        }
+      }
+      if (!(beat > finish)) return { misses: misses };
+      if (!loop) { s.done = true; return { misses: misses, result: "done" }; }
+      var clean = s.passWrong === 0 && s.passMissed === 0;
+      s.passes++; s.passWrong = 0; s.passMissed = 0; s.judged = {};
+      s.cleanPasses = clean ? s.cleanPasses + 1 : 0;
+      if (s.cleanPasses >= LOOP_CLEAN) { s.done = true; return { misses: misses, result: "done", clean: true }; }
+      return { misses: misses, result: "pass", clean: clean };
+    };
+    // Play again from beat (after Hear it first): notes from there on are to be played again. Going
+    // back to the start of a loop starts its pass over.
+    s.seek = function (beat) {
+      for (var j = 0; j < notes.length; j++) if (notes[j].start >= beat - 1e-6) delete s.judged[idx[j]];
+      if (loop && beat <= s.range.start + 1e-6) { s.passWrong = 0; s.passMissed = 0; }
+    };
+    s.restart = function () {
+      s.judged = {}; s.correct = 0; s.wrong = 0; s.missed = 0; s.onTime = 0; s.early = 0; s.late = 0;
+      s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {};
+      s.passes = 0; s.passWrong = 0; s.passMissed = 0; s.cleanPasses = 0;
+      s.done = notes.length === 0;
+    };
+    s.restart();
+    return s;
+  }
+
   // ---------- hear it first ----------
 
   // Each note is released a little early when the song is played back, so a repeated note is struck
@@ -386,14 +563,15 @@
   // keys this long after its request returns, so sound and lights start together.
   var LISTEN_LEAD_MS = 150;
 
-  // What "hear it first" plays: bars from..to of song at its tempo, for one hand or both.
+  // What "hear it first" plays: bars from..to of song at its tempo (or opts.speed percent of it), for one hand or both.
   // Returns { from, to, startBeat, endBeat, beatMs, ms, events: [{ note, hand, finger, at, dur }] },
   // with at and dur in milliseconds from the start of bar from. Notes are clipped at the end of the
   // range; notes that start before it are left out.
   function listenPlan(song, opts) {
     var hand = playHand(song, opts.hand);
     var range = clampLoop(song, { from: opts.from, to: opts.to }) || { from: 1, to: 1 };
-    var bpb = song.beatsPerBar, lo = (range.from - 1) * bpb, hi = range.to * bpb, beatMs = 60000 / song.bpm;
+    var bpb = song.beatsPerBar, lo = (range.from - 1) * bpb, hi = range.to * bpb;
+    var beatMs = 60000 / (song.bpm * (opts.speed ? clampSpeed(opts.speed) : 100) / 100);
     var events = [];
     for (var i = 0; i < song.notes.length; i++) {
       var n = song.notes[i];
@@ -565,6 +743,8 @@
     handName: handName, isFinger: isFinger, normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,
     barCount: barCount, barOf: barOf, playHand: playHand, clampLoop: clampLoop, nextHand: nextHand, LOOP_CLEAN: LOOP_CLEAN,
     advanceClock: advanceClock, hint: hint, createSession: createSession,
+    createTempoSession: createTempoSession, clampSpeed: clampSpeed, countIn: countIn,
+    TEMPO_WINDOW_MS: TEMPO_WINDOW_MS, TEMPO_ON_MS: TEMPO_ON_MS, SPEED_MIN: SPEED_MIN, SPEED_MAX: SPEED_MAX, SPEED_STEP: SPEED_STEP,
     listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
   };
 });

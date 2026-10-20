@@ -33,6 +33,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #toast.on{opacity:1}
 #want span.right{color:var(--rh)}#want span.left{color:var(--lh)}
 #loopBox{display:none}#loopBox.on{display:block}
+#timeBox{display:none}#timeBox.on{display:block}
+#timeVal.early{color:var(--amber)}#timeVal.late{color:var(--amber)}#timeVal.ontime{color:var(--green)}#timeVal.miss{color:var(--red)}
+#count{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-size:9rem;font-weight:800;color:var(--txt);opacity:0;pointer-events:none;text-shadow:0 .3rem 1.2rem rgba(0,0,0,.6)}
+#count.on{opacity:.9}
 #loopVal{font-size:2.2rem;letter-spacing:.15em;color:var(--green)}
 #keys{font-size:.8rem;color:var(--txt2);opacity:.65;line-height:1.5}
 #panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
@@ -70,12 +74,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <div id="right" class="side">
   <div><div class="lbl">Accuracy</div><div class="val" id="acc">-</div></div>
   <div><div class="lbl">Streak</div><div class="val" id="streak">0</div></div>
-  <div><div class="lbl">Waiting for</div><div class="val" id="want">-</div></div>
+  <div><div class="lbl" id="wantLbl">Waiting for</div><div class="val" id="want">-</div></div>
+  <div id="timeBox"><div class="lbl">Timing</div><div class="val" id="timeVal">-</div><div class="sub" id="timeSub"></div></div>
   <div id="loopBox"><div class="lbl" id="loopLbl">Loop</div><div class="val" id="loopVal"></div><div class="sub" id="loopSub"></div></div>
 </div>
 <div id="hint"></div>
 <div id="toast"></div>
 <div id="listen"></div>
+<div id="count"></div>
 <div id="panel"></div>
 <div id="progress"></div>
 <script src="/piano-core.js"></script>
@@ -96,6 +102,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var KEY_H = 0.16;         // on-screen keys, share of the screen height, on the very bottom edge
   var FLASH_MS = 700, HINT_MS = 2600;
   var ECHO_MS = 250;        // keys arriving this soon after Hear it first ends are still its echo
+  var LIGHT_BEATS = 1;      // tempo mode lights the next keys this many beats before they are due
   // Per-hand colours: falling notes (white / black key lanes) and the keys a step is waiting for.
   var HAND = {
     right: { white: "#4da3ff", black: "#2f7fd6", want: "#8cc6ff" },
@@ -134,6 +141,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var view = rememberedView();        // notes | both | sheet
   var sheet = null;         // the current song as notation, with its rendered pages
   var marks = {};           // song beat of each step played this time through -> "ok" | "bad"
+  var tempo = rememberedTempo();      // tempo mode (the song keeps time) instead of wait mode
+  var speed = rememberedSpeed();      // tempo mode speed, percent of the song's tempo
 
   // ---------- sizing ----------
 
@@ -175,13 +184,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     newSession();
   }
 
-  // A fresh wait-mode session for the current song, hand and loop, with the clock in the lead-in.
+  // A fresh session for the current song, hand, loop and mode, with the clock in the lead-in (wait
+  // mode) or the count-in (tempo mode).
   function newSession() {
     if (!song) return;
     cancelListen();
     loop = P.clampLoop(song, loop);
-    session = P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
-    clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
+    session = tempo ? P.createTempoSession(song, { hand: hand, loop: loop, speed: speed, tolerant: micMode }) : P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
+    startClock(); paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
+    playMode = tempo ? "tempo" : "wait"; playSpeed = tempo ? speed / 100 : 1;
     showBest();
     modeText();
     lastSide = "";
@@ -191,7 +202,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
   function modeText() {
     var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
-    $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "") +
+    var pace = session.tempo ? "Tempo " + session.speed + "% · " + Math.round(song.bpm * session.speed / 100) + " of " + song.bpm + " bpm" : "Wait mode · " + song.bpm + " bpm";
+    $("mode").textContent = pace.replace(" · ", " · " + HAND_NAMES[session.hand].toLowerCase() + only + " · ") + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "") +
       (micMode ? " · mic: octave and top note" : "");
   }
 
@@ -200,8 +212,44 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function setMicMode(on) {
     if (on === micMode) return;
     micMode = on;
-    if (session) { session.setTolerant(on); modeText(); lastSide = ""; panel(); report(); }
+    // Tempo mode starts over: which notes are judged changes with mic mode.
+    if (session && session.tempo) newSession();
+    else if (session) { session.setTolerant(on); modeText(); lastSide = ""; panel(); report(); }
     toast(on ? (session && session.hand === "both" && song.hands.length > 1 ? "Microphone: one hand at a time works best · ▲ hand" : "Microphone input · forgiving") : "Keyboard input");
+  }
+
+  function startClock() {
+    clock = session.tempo ? session.range.start - session.range.countIn : session.range.start - LEAD_IN;
+  }
+
+  function rememberedTempo() {
+    try { return localStorage.getItem("pianoTempo") === "on"; } catch (e) { return false; }
+  }
+
+  function rememberedSpeed() {
+    var v = NaN;
+    try { v = Number(localStorage.getItem("pianoSpeed")); } catch (e) {}
+    return v ? P.clampSpeed(v) : 75;
+  }
+
+  // Link page (or T): tempo mode on or off. id is "on", "off" or "" to toggle. The song starts over.
+  function setTempo(id) {
+    if (mode !== "play") return;
+    tempo = id === "on" ? true : id === "off" ? false : !tempo;
+    try { localStorage.setItem("pianoTempo", tempo ? "on" : "off"); } catch (e) {}
+    newSession();
+    toast(tempo ? "Tempo mode · " + speed + "%" : "Wait mode");
+  }
+
+  // Link page slider (or - and =): tempo mode speed, 50-100% of the song's tempo. The song starts over
+  // in tempo mode so the count-in sets the new pace.
+  function setSpeed(pct) {
+    var v = P.clampSpeed(pct);
+    if (mode !== "play" || v === speed) return;
+    speed = v;
+    try { localStorage.setItem("pianoSpeed", String(speed)); } catch (e) {}
+    if (tempo) newSession(); else report();
+    toast("Tempo " + speed + "%" + (tempo ? "" : " (tempo mode is off)"));
   }
 
   function rememberedFingers() {
@@ -237,9 +285,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function toggleListen() {
     if (mode !== "play" || !session || !song) return;
     if (listen || listenReq) return stopListen(true);
-    var st = session.current(), bars = P.barCount(song);
-    var from = loop ? loop.from : Math.min(bars, P.barOf(song, st ? st.start : clock)), to = loop ? loop.to : from;
-    var plan = P.listenPlan(song, { hand: session.hand, from: from, to: to });
+    var bars = P.barCount(song);
+    var from = loop ? loop.from : Math.min(bars, P.barOf(song, playingAt())), to = loop ? loop.to : from;
+    var plan = P.listenPlan(song, { hand: session.hand, from: from, to: to, speed: tempo ? speed : 100 });
     if (!plan.events.length) { toast("Nothing to hear in " + barsText(plan)); return; }
     var req = listenReq = {};
     var events = plan.events.map(function (e) { return { note: e.note, at: e.at, dur: e.dur }; });
@@ -262,7 +310,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (tell && (listen || listenReq)) postJson("/api/piano/listen", { stop: true }, function () {});
     listenReq = null;
     if (!listen) return;
-    clock = listen.clock; paused = listen.paused; listen = null;
+    if (session.tempo) {
+      // Tempo mode plays the bars just heard: count in again before them, nothing judged from there on.
+      session.seek(listen.plan.startBeat);
+      for (var mk in marks) if (Number(mk) >= listen.plan.startBeat - 1e-6) delete marks[mk];
+      clock = listen.plan.startBeat - session.range.countIn;
+    } else clock = listen.clock;
+    paused = listen.paused; listen = null;
     echoUntil = Date.now() + ECHO_MS;
     $("listen").className = "";
     lastSide = "";
@@ -301,8 +355,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function toggleLoop() {
     if (!session) return;
     if (loop) return setLoop(null);
-    var st = session.current(), bar = P.barOf(song, st ? st.start : clock);
-    setLoop({ from: bar, to: bar });
+    setLoop({ from: P.barOf(song, playingAt()), to: P.barOf(song, playingAt()) });
+  }
+
+  // The beat being played: wait mode's step, or tempo mode's clock once the count-in is over.
+  function playingAt() {
+    if (session.tempo) return Math.max(clock, session.range.start);
+    var st = session.current();
+    return st ? st.start : clock;
   }
 
   // Remote ◀ ▶ while looping: move the loop by a bar, keeping its length.
@@ -362,7 +422,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function restart() {
     if (!session) return;
     cancelListen();
-    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
+    session.restart(); startClock(); paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
     panel();
     report();
   }
@@ -378,12 +438,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (mode === "cal3" || !session) return;
     if (progressOn) return;
     if (session.done) { restart(); held[n] = true; }
+    if (session.tempo && paused) return;
+    // Settle the misses up to now first, so the hint for a wrong key points at a note still to come.
+    if (session.tempo) tempoTick(Date.now());
     if (!playStart) playStart = Date.now();
-    var st = session.current(), r = session.press(n);
+    var st = session.current(), r = session.tempo ? session.press(n, clock) : session.press(n);
     // The sheet music colours each step played: green, or red when it took a wrong key.
-    if (r.result === "wrong") marks[st.start] = "bad";
+    if (r.result === "wrong" && st) marks[st.start] = "bad";
     else if (r.result === "advance" || r.result === "pass" || r.result === "done") marks[st.start] = marks[st.start] || "ok";
-    if (r.result === "wrong") {
+    else if (r.result === "hit") tempoMarks();
+    if (r.result === "hit") {
+      // Tempo mode: green on time, amber early or late.
+      flash[n] = { color: r.timing === "on time" ? "#3ddc84" : "#ffb020", until: Date.now() + FLASH_MS };
+      $("hint").className = ""; hintUntil = 0;
+    } else if (r.result === "wrong") {
       // A wrong key stays red while it is held down, then fades.
       flash[n] = { color: "#ff5252", until: Infinity };
       $("hint").textContent = r.hint; $("hint").className = "on"; hintUntil = Date.now() + HINT_MS;
@@ -537,6 +605,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "fingers") setFingers(c.id);
     else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
     else if (c.cmd === "view") setView(c.id);
+    else if (c.cmd === "tempo") setTempo(c.id);
+    else if (c.cmd === "speed") setSpeed(c.id);
   }
 
   // Play-pause on the Fire TV remote; L on a keyboard.
@@ -550,8 +620,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
   // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
-  // the progress screen (also the link page's Progress button; OK or Back closes it) and V switches
-  // between falling notes, sheet music and both.
+  // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
+  // between falling notes, sheet music and both. On a keyboard only (the remote has no free key), T
+  // switches tempo mode and - / = change its speed.
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     if (TVSwitch.isListenKey(e)) { e.preventDefault(); if (!e.repeat) toggleListen(); }
@@ -567,6 +638,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
+    else if ((k === "t" || k === "T") && mode === "play") { if (!e.repeat) setTempo(""); }
+    else if ((k === "-" || k === "_") && mode === "play") setSpeed(speed - P.SPEED_STEP);
+    else if ((k === "=" || k === "+") && mode === "play") setSpeed(speed + P.SPEED_STEP);
   });
 
   // ---------- relay ----------
@@ -628,11 +702,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function snapshot() {
     return {
       mode: mode, paused: paused,
-      songId: songId, song: song ? song.title : "", step: session ? session.index : 0, steps: session ? session.steps.length : 0,
+      songId: songId, song: song ? song.title : "", step: !session ? 0 : session.tempo ? Object.keys(session.judged).length : session.index, steps: !session ? 0 : session.tempo ? session.noteCount : session.steps.length,
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
       listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
+      missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
+      late: session && session.tempo ? session.late : 0, onTime: session && session.tempo ? session.onTime : 0,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
       correct: session ? session.correct : 0, wrong: session ? session.wrong : 0,
@@ -667,6 +744,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var lines = ["Accuracy <b>" + P.percentText(acc) + "</b> · best streak <b>" + session.bestStreak + "</b> · wrong keys <b>" + session.wrong + "</b>" +
       (p ? " · time <b>" + P.durationText(p.durationMs) + "</b>" : "") + (loop ? " · " + session.passes + " passes" : "")];
     var missed = Object.keys(session.wrongKeys).sort(function (a, b) { return session.wrongKeys[b] - session.wrongKeys[a] || a - b; }).slice(0, 3);
+    if (session.tempo) lines.push("Tempo <b>" + session.speed + "%</b> · " + session.onTime + " on time, " + session.early + " early, " + session.late + " late, <b>" + session.missed + " missed</b>");
     if (missed.length) lines.push("Most missed: " + missed.map(function (n) { return "<b>" + P.noteName(Number(n)) + "</b> ×" + session.wrongKeys[n]; }).join(", "));
     if (r && r.error) lines.push('<span class=warn>Not saved: ' + esc(r.error) + "</span>");
     else if (p && loop) lines.push("Loop plays are saved but do not count towards best scores.");
@@ -689,16 +767,53 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       var el = now - listen.t0;
       if (el >= listen.plan.ms) stopListen(false);
       else clock = listen.plan.startBeat + el / listen.plan.beatMs;
+    } else if (session && mode === "play" && !paused && !progressOn && session.tempo) {
+      // Tempo mode: the clock keeps time at the chosen speed and notes not struck in time are missed.
+      clock = P.advanceClock(clock, dt, song.bpm * session.speed / 100, null);
+      tempoTick(now);
     } else if (session && mode === "play" && !paused) {
       // A finished song keeps falling away instead of freezing on screen.
       var st = session.current();
       clock = P.advanceClock(clock, dt, song.bpm, st ? st.start : null);
     }
+    countShow();
     if (hintUntil && now > hintUntil) { $("hint").className = ""; hintUntil = 0; }
     place();
     draw(now);
     side();
     requestAnimationFrame(frame);
+  }
+
+  function tempoTick(now) {
+    var r = session.tick(clock);
+    for (var i = 0; i < r.misses.length; i++) flash[r.misses[i]] = { color: "#7a2b35", until: now + FLASH_MS / 2 };
+    if (r.misses.length) tempoMarks();
+    if (r.result === "pass") {
+      toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
+      startClock();
+      marks = {};
+    }
+    if (r.result === "done") { panel(); saveResult(); }
+    if (r.misses.length || r.result) report();
+  }
+
+  // The sheet music marks for tempo mode, from the session's judgements: a beat with a missed note
+  // is red, one with every note struck green (a wrong key there keeps it red).
+  function tempoMarks() {
+    for (var i in session.judged) {
+      var at = song.notes[i].start;
+      marks[at] = session.judged[i] === "miss" ? "bad" : marks[at] || "ok";
+    }
+  }
+
+  // The count-in before a tempo-mode start: 1 2 3 4 in the middle of the screen.
+  var shownCount = -1;
+  function countShow() {
+    var c = session && session.tempo && mode === "play" && !listen ? P.countIn(clock, session.range.start, session.range.countIn) : 0;
+    if (c === shownCount) return;
+    shownCount = c;
+    $("count").textContent = c || ""; $("count").className = c ? "on" : "";
+    report();
   }
 
   function draw(now) {
@@ -721,8 +836,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     }
 
     var want = {}, current = session && mode === "play" && !listen ? session.current() : null;
-    // In mic mode only a chord's top note is wanted, so only that key lights.
-    if (current) session.needed().forEach(function (x) { want[x] = session.hit[x] ? "hit" : "want"; });
+    // Tempo mode lights the next keys only shortly before they are due. In mic mode only a chord's top
+    // note is wanted, so only that key lights.
+    if (current && session.tempo && current.start - clock > LIGHT_BEATS) current = null;
+    if (current) session.needed().forEach(function (x) { want[x] = session.hit && session.hit[x] ? "hit" : "want"; });
     var lo = loop ? session.range.start : -Infinity, hi = loop ? session.range.end : Infinity;
     // While Hear it first plays, the keys sounding now are lit instead of the ones wait mode wants.
     var lp = listen && listen.plan, snd = lp ? P.sounding(lp, now - listen.t0) : {};
@@ -745,8 +862,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
           col = isCur ? hc.want : (key.black ? hc.black : hc.white);
         } else {
           mine = (session.hand === "both" || nt.hand === session.hand) && nt.start >= lo - 1e-6 && nt.start < hi - 1e-6;
-          isCur = mine && Math.abs(nt.start - curStart) < 1e-6;
-          col = !mine ? (key.black ? hc.black : hc.white) : nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : hc.want) : (key.black ? hc.black : hc.white);
+          if (session.tempo) {
+            // Tempo mode colours each note by its judgement: green when hit, dark red when missed.
+            var jd = mine && session.judged[i];
+            isCur = mine && !jd && Math.abs(nt.start - curStart) < 1e-6;
+            col = jd === "miss" ? "#7a2b35" : jd ? "#2b7a52" : isCur ? hc.want : (key.black ? hc.black : hc.white);
+          } else {
+            isCur = mine && Math.abs(nt.start - curStart) < 1e-6;
+            col = !mine ? (key.black ? hc.black : hc.white) : nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : hc.want) : (key.black ? hc.black : hc.white);
+          }
         }
         roundRect(key.x0 + gap, top + gap, key.x1 - key.x0 - 2 * gap, bottom - top - 2 * gap, Math.min(10 * DPR, (key.x1 - key.x0) / 3));
         ctx.globalAlpha = mine ? 1 : 0.22;
@@ -756,7 +880,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         // Finger number at the bottom of the note's visible part, where it meets the key.
         var fs = Math.min((key.x1 - key.x0) * 0.8, 30 * DPR), seen = Math.min(bottom, hitY);
         if (fingers && nt.finger && seen - top - 2 * gap > fs * 1.2) {
-          fingerText(nt.finger, (key.x0 + key.x1) / 2, seen - gap - fs * 0.65, fs, col === "#2b7a52" ? "#d8f5e6" : "#07101d");
+          fingerText(nt.finger, (key.x0 + key.x1) / 2, seen - gap - fs * 0.65, fs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
         }
         ctx.globalAlpha = 1;
       }
@@ -978,7 +1102,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       } else if (ev.src < lo - 1e-6 || ev.src >= hi - 1e-6) {
         continue;
       } else if (current && Math.abs(ev.src - curStart) < 1e-6) {
-        col = session.hit[ev.notes[h.k]] ? "#3ddc84" : "#ffb020";
+        col = session.hit && session.hit[ev.notes[h.k]] ? "#3ddc84" : "#ffb020";
       } else if (marks[ev.src]) {
         col = marks[ev.src] === "bad" ? "#ff5252" : "#3ddc84";
       }
@@ -1042,11 +1166,21 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var bar = P.barOf(song, clock), bars = P.barCount(song);
     var st = session.current(), waiting = session.waitingFor();
     var wantNames = waiting.map(P.noteName).join(" ");
-    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused, session.passes, session.cleanPasses, session.passWrong, listen ? listen.label : ""].join("|");
+    var tl = session.tempo ? [session.missed, session.onTime, session.early, session.late, session.passMissed, session.lastTiming ? session.lastTiming.timing + session.lastTiming.ms : ""].join(",") : "";
+    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused, session.passes, session.cleanPasses, session.passWrong, listen ? listen.label : "", tl].join("|");
     if (key === lastSide) return;
     lastSide = key;
     $("bar").textContent = listen ? Math.min(bar, bars) + " of " + bars + " · listen" : session.done ? "Finished" : Math.min(bar, bars) + " of " + bars + (paused ? " · paused" : "");
-    $("acc").textContent = session.correct + session.wrong ? Math.round(session.accuracy() * 100) + "%" : "-";
+    $("acc").textContent = session.correct + session.wrong + (session.missed || 0) ? Math.round(session.accuracy() * 100) + "%" : "-";
+    $("wantLbl").textContent = session.tempo ? "Next" : "Waiting for";
+    // Tempo mode: the last note's timing, and the tally of on time, early, late and missed notes.
+    $("timeBox").className = session.tempo ? "on" : "";
+    if (session.tempo) {
+      var lt = session.lastTiming;
+      $("timeVal").textContent = lt ? (lt.timing === "on time" ? "On time" : (lt.timing === "early" ? "Early " : "Late ") + Math.abs(lt.ms) + " ms") : "-";
+      $("timeVal").className = lt ? lt.timing.replace(" ", "") : "";
+      $("timeSub").textContent = session.onTime + " on time · " + session.early + " early · " + session.late + " late · " + session.missed + " missed";
+    }
     $("streak").textContent = session.streak + (session.bestStreak > session.streak ? " (best " + session.bestStreak + ")" : "");
     // Each waiting note in its hand's colour.
     $("want").innerHTML = session.done ? "OK to replay" : waiting.length ? waiting.map(function (n) {
@@ -1061,7 +1195,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       $("loopLbl").textContent = "Loop · " + barsText(loop);
       $("loopVal").textContent = dots;
       $("loopSub").textContent = session.cleanPasses + " of " + session.cleanNeeded + " clean in a row" +
-        (session.passWrong && !session.done ? " · this pass has a mistake" : "") + " · pass " + (session.passes + (session.done ? 0 : 1));
+        (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1));
     }
     $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song · ⏯ loop bar · ⏪ hear the bar") + " · ▲ hand · ⏩ wall";
   }

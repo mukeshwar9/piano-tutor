@@ -29,6 +29,8 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
 button.sel{background:#2a3a55;border-color:var(--blue)}
 #bRight.sel{border-color:#8cc6ff;color:#8cc6ff}#bLeft.sel{border-color:#ff9ff0;color:#ff9ff0}
 select.bar{min-width:0}
+input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
+#speedVal{font-weight:800;min-width:48px;text-align:right}
 #play .rh{color:#8cc6ff;font-weight:800}#play .lh{color:#ff9ff0;font-weight:800}
 #play{font-size:15px;color:var(--txt2);line-height:1.6}
 #play b{color:var(--txt)}
@@ -122,13 +124,18 @@ select.bar{min-width:0}
   <div class="btns">
     <button id="bRight" data-hand="right">Right hand</button><button id="bLeft" data-hand="left">Left hand</button><button id="bBoth" data-hand="both">Both hands</button>
   </div>
+  <div class="btns" style="margin-top:8px;align-items:center">
+    <button id="bWait" data-tempo="off">Wait mode</button><button id="bTempo" data-tempo="on">Tempo mode</button>
+    <input type="range" id="speed" min="50" max="100" step="5" value="75" aria-label="Tempo mode speed"><span id="speedVal">75%</span>
+  </div>
+  <div class="sub" id="tempoStatus" style="margin-top:8px">Wait mode waits for your keys. Tempo mode keeps time at the speed on the slider (50–100% of the song's tempo) after a one-bar count-in, and judges each note on time, early, late or missed. On a keyboard at the TV: T, and - / = for the speed.</div>
   <div class="btns" style="margin-top:8px">
     <button id="bListen" class="pri">Hear it first</button><button id="bFingers">Finger numbers</button>
   </div>
   <div class="btns" style="margin-top:8px">
     <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
   </div>
-  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo, for the hand you practise; then it is your turn. On the remote: ⏪.</div>
+  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
     <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
@@ -320,7 +327,8 @@ select.bar{min-width:0}
     var hands = { right: "<span class=rh>right hand</span>", left: "<span class=lh>left hand</span>", both: "<span class=rh>both</span> <span class=lh>hands</span>" };
     $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · " + (hands[s.playHand] || "") + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
       (s.loop ? "<br>Loop " + loopText(s.loop) + ": <b>" + s.cleanPasses + " of " + s.cleanNeeded + "</b> clean in a row · pass " + (s.passes + (s.done ? 0 : 1)) + (s.done ? " · <b>mastered</b>" : "") : "") +
-      "<br>Waiting for <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · streak " + s.streak +
+      (s.tempo ? "<br>Tempo <b>" + s.speed + "%</b>" + (s.countIn ? " · count-in <b>" + s.countIn + "</b>" : "") + " · " + s.onTime + " on time, " + s.early + " early, " + s.late + " late, <b>" + s.missed + " missed</b>" : "") +
+      "<br>" + (s.tempo ? "Next" : "Waiting for") + " <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · streak " + s.streak +
       (s.hint ? "<br>Last hint: " + esc(s.hint) : "") +
       (s.calibration ? "<br>Strip " + Math.round(s.calibration.left) + "–" + Math.round(s.calibration.right) + " px of " + s.screenPx + ", keys " + P.noteName(s.calibration.low) + "–" + P.noteName(s.calibration.high) : "");
   }
@@ -351,6 +359,11 @@ select.bar{min-width:0}
     $("bProgress").textContent = s.progress ? "Close progress on the TV" : "Show progress on the TV";
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
+      b.className = (b.dataset.tempo === "on") === !!s.tempo ? "sel" : "";
+    });
+    // The slider follows the TV unless it is being dragged.
+    if (s.speed && !dragging) { $("speed").value = s.speed; $("speedVal").textContent = s.speed + "%"; }
     $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
     $("bFingers").className = s.fingers === false ? "" : "sel";
     Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
@@ -742,6 +755,12 @@ select.bar{min-width:0}
   Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
     b.onclick = function () { control("view", 0, b.dataset.view); };
   });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
+    b.onclick = function () { control("tempo", 0, b.dataset.tempo); };
+  });
+  var dragging = false;
+  $("speed").oninput = function () { dragging = true; $("speedVal").textContent = $("speed").value + "%"; };
+  $("speed").onchange = function () { dragging = false; control("speed", 0, $("speed").value); };
   $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {
     b.onclick = function () { control("nudge", Number(b.dataset.px)); };

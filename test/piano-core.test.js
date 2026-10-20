@@ -1,4 +1,4 @@
-// Piano mode: calibration math, song loading, wait-mode logic and Hear it first. Run: node test/piano-core.test.js
+// Piano mode: calibration math, song loading, wait-mode and tempo-mode logic and Hear it first. Run: node test/piano-core.test.js
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -321,6 +321,116 @@ assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 0)).map(Number), [48, 6
 assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 1200)).map(Number), [48, 62]);
 assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 1470)).map(Number), [], "gap before the repeated D");
 assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 2950)).map(Number), [], "everything released before the bar ends");
+
+// Tempo mode: speeds are 50-100% in steps of 5.
+assert.deepStrictEqual([P.clampSpeed(75), P.clampSpeed(30), P.clampSpeed(120), P.clampSpeed(73), P.clampSpeed("x")], [75, 50, 100, 75, 100]);
+// Count-in: the bar before the start counts 1-4, then nothing.
+assert.deepStrictEqual([-4, -3.5, -3, -0.01, 0, -4.5].map((c) => P.countIn(c, 0, 4)), [1, 1, 2, 4, 0, 0]);
+// One bar at 60 bpm (1000 ms a beat at 100%): right hand C D E F, left hand C3 held for the bar.
+const tSong = P.normalizeSong({ title: "t", bpm: 60, beatsPerBar: 4, notes: [["C4", 0, 1], ["D4", 1, 1], ["E4", 2, 1], ["F4", 3, 1], ["C3", 0, 4, "L"]] }).song;
+const t1 = P.createTempoSession(tSong, { hand: "right", speed: 100 });
+assert.deepStrictEqual([t1.hand, t1.speed, t1.beatMs, t1.range.start, t1.range.countIn], ["right", 100, 1000, 0, 4]);
+near(t1.window, 0.3, "300 ms window in beats");
+assert.deepStrictEqual(t1.waitingFor(), [60]);
+// Keys during the count-in are not judged; the song does not wait.
+assert.deepStrictEqual(t1.press(60, -2), { result: "ignored" });
+assert.deepStrictEqual(t1.tick(-1).misses, []);
+// On time within 110 ms, early or late within 300 ms.
+assert.deepStrictEqual(t1.press(60, 0.05), { result: "hit", timing: "on time", ms: 50 });
+assert.deepStrictEqual(t1.press(62, 0.8), { result: "hit", timing: "early", ms: -200 });
+assert.deepStrictEqual(t1.waitingFor(), [64]);
+// Striking a hit note again while it sounds, or the left hand's C3, is ignored.
+assert.strictEqual(t1.press(62, 1.2).result, "ignored");
+assert.deepStrictEqual(t1.press(48, 1.5), { result: "ignored", other: true });
+// The song moves on: E4 is missed once its window closes, a key far off its time is wrong.
+assert.deepStrictEqual(t1.tick(2.29).misses, []);
+assert.deepStrictEqual(t1.tick(2.31).misses, [64]);
+assert.strictEqual(t1.press(65, 2.5).result, "wrong", "F4 500 ms early is outside the window");
+assert.strictEqual(t1.streak, 0);
+assert.deepStrictEqual(t1.press(65, 3.25), { result: "hit", timing: "late", ms: 250 });
+assert.deepStrictEqual([t1.correct, t1.wrong, t1.missed, t1.onTime, t1.early, t1.late], [3, 1, 1, 1, 1, 1]);
+assert.deepStrictEqual(t1.judged, { 1: "on time", 2: "early", 3: "miss", 4: "late" }, "judged by index in song.notes (C3 sorts first)");
+near(t1.accuracy(), 3 / 5, "hits over hits, wrong keys and misses");
+// The song finishes when the last bar has played.
+assert.strictEqual(t1.tick(3.9).result, undefined);
+assert.strictEqual(t1.tick(4.01).result, "done");
+assert(t1.done);
+assert.strictEqual(t1.press(60, 4.1).result, "ignored");
+t1.restart();
+assert.deepStrictEqual([t1.done, t1.correct, t1.missed, Object.keys(t1.judged).length], [false, 0, 0, 0]);
+// Half speed: 2000 ms a beat, so the same 300 ms window is 0.15 beats.
+const tHalf = P.createTempoSession(tSong, { hand: "right", speed: 50 });
+near(tHalf.window, 0.15, "window at 50%");
+assert.deepStrictEqual(tHalf.press(60, -0.05), { result: "hit", timing: "on time", ms: -100 });
+assert.strictEqual(tHalf.press(62, 0.8).result, "wrong");
+// Both hands: the left-hand C3 is wanted with C4, and the chord is the next step until both are hit.
+const tBoth = P.createTempoSession(tSong, { hand: "both" });
+assert.deepStrictEqual(tBoth.waitingFor(), [48, 60]);
+assert.deepStrictEqual(tBoth.current().hands, { 48: "left", 60: "right" });
+tBoth.press(48, 0);
+assert.deepStrictEqual(tBoth.waitingFor(), [60]);
+// A repeated note matches the nearest one still to be played.
+const rep = P.createTempoSession(P.normalizeSong({ title: "r", bpm: 60, notes: [["C4", 0, 0.5], ["C4", 0.5, 0.5]] }).song, {});
+assert.strictEqual(rep.press(60, 0.2).timing, "late", "200 ms after the first C4, 300 ms before the second");
+assert.deepStrictEqual(rep.judged, { 0: "late" });
+assert.strictEqual(rep.press(60, 0.35).timing, "early");
+assert.deepStrictEqual(rep.judged, { 0: "late", 1: "early" });
+assert.strictEqual(rep.press(60, 0.6).result, "ignored", "struck again while the second C4 sounds");
+// Practice loop at tempo: bar 1 of the test song, a pass is clean with no miss and no wrong key.
+const tLoop = P.createTempoSession(tSong, { hand: "right", loop: { from: 1, to: 1 } });
+assert.deepStrictEqual([tLoop.range.start, tLoop.range.end], [0, 4]);
+function playBar(s, skip) { [60, 62, 64, 65].forEach((n, i) => { if (i !== skip) s.press(n, i); s.tick(i + 0.5); }); return s.tick(4.01); }
+assert.deepStrictEqual(playBar(tLoop), { misses: [], result: "pass", clean: true });
+assert.deepStrictEqual(tLoop.judged, {}, "a new pass starts with nothing judged");
+assert.deepStrictEqual(playBar(tLoop, 2), { misses: [], result: "pass", clean: false }, "a missed E4 spoils the pass");
+assert.strictEqual(tLoop.cleanPasses, 0);
+playBar(tLoop); playBar(tLoop);
+assert.deepStrictEqual(playBar(tLoop), { misses: [], result: "done", clean: true });
+assert.deepStrictEqual([tLoop.passes, tLoop.cleanPasses, tLoop.missed], [5, 3, 1]);
+// A wrong key spoils a pass too.
+const tLoop2 = P.createTempoSession(tSong, { hand: "right", loop: { from: 1, to: 1 } });
+tLoop2.press(70, 1.5);
+assert.strictEqual(playBar(tLoop2).clean, false);
+// Loops on later bars start on their bar line; Ode to Joy bar 4 in tempo mode at 75%.
+const tOde = P.createTempoSession(odeSong, { hand: "right", loop: { from: 4, to: 4 }, speed: 75 });
+assert.deepStrictEqual([tOde.range.start, tOde.range.end, tOde.waitingFor()], [12, 16, [64]]);
+near(tOde.beatMs, 1000, "80 bpm at 75%");
+// Seeking back (after Hear it first) reopens the notes from there on.
+const tSeek = P.createTempoSession(tSong, { hand: "right" });
+tSeek.press(60, 0); tSeek.press(62, 1); tSeek.tick(3);
+assert.deepStrictEqual(tSeek.judged, { 1: "on time", 2: "on time", 3: "miss" });
+tSeek.seek(1);
+assert.deepStrictEqual(tSeek.judged, { 1: "on time" });
+assert.deepStrictEqual(tSeek.waitingFor(), [62]);
+// A finished tempo-mode play goes to the score history as mode "tempo" with its speed as a share.
+const tRec = P.createTempoSession(tSong, { hand: "right", speed: 75 });
+tRec.press(61, 0); tRec.press(61, 0.05); tRec.tick(9);
+assert(tRec.done);
+assert.deepStrictEqual(tRec.wrongKeys, { 61: 2 });
+const rec = P.validPlay(P.playRecord({ id: "t", title: "t" }, tRec, { mode: "tempo", speed: tRec.speed / 100 }));
+assert.deepStrictEqual([rec.mode, rec.speed, rec.correct, rec.wrong, rec.accuracy, rec.wrongKeys], ["tempo", 0.75, 0, 2, 0, { "C#4": 2 }]);
+tRec.restart();
+assert.deepStrictEqual(tRec.wrongKeys, {});
+// Mic mode in tempo mode: only a chord's top note is judged, the right name an octave away counts,
+// and the chord's lower notes are ignored instead of counted wrong.
+const chordSong = P.normalizeSong({ title: "c", bpm: 60, notes: [["C4", 0, 1], ["E4", 0, 1], ["G4", 0, 1], ["D4", 1, 1]] }).song;
+const tMic = P.createTempoSession(chordSong, { tolerant: true });
+assert.deepStrictEqual(tMic.waitingFor(), [67]);
+assert.deepStrictEqual(tMic.needed(), [67]);
+assert.strictEqual(tMic.press(60, 0).result, "ignored", "a lower chord note");
+assert.strictEqual(tMic.press(55, 0.05).timing, "on time", "G3 for G4");
+assert.strictEqual(tMic.press(74, 1.1).timing, "on time", "D5 for D4");
+tMic.tick(3);
+assert.deepStrictEqual([tMic.done, tMic.missed, tMic.wrong], [true, 0, 0]);
+// The same keys without mic mode: G3 is wrong and the C4 and E4 of the chord are missed.
+const tKeys = P.createTempoSession(chordSong, {});
+assert.strictEqual(tKeys.press(55, 0.05).result, "wrong");
+tKeys.press(74, 1.1); tKeys.tick(3);
+assert.deepStrictEqual([tKeys.missed, tKeys.wrong], [4, 2]);
+// Hear it first at the practice speed: bar 4 of Ode to Joy at 50% takes twice as long.
+const plan4half = P.listenPlan(odeSong, { hand: "right", from: 4, to: 4, speed: 50 });
+assert.deepStrictEqual([plan4half.ms, plan4half.beatMs], [6000, 1500]);
+assert.deepStrictEqual(plan4half.events.map((e) => e.at), [0, 2250, 3000]);
 
 // MIDI messages: channel 1 note on / note off at t0 + at, offs before ons at the same time.
 const msgs = P.midiMessages([{ note: 62, at: 0, dur: 100 }, { note: 62, at: 100, dur: 50 }, { note: 300, at: 0, dur: 10 }], 1000, 70);
