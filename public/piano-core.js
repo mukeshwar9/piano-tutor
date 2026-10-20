@@ -255,7 +255,19 @@
     return s;
   }
 
+  // The song to pick when the remote steps dir (+1 / -1) from current: songs with errors are skipped
+  // and the list wraps. Returns "" when nothing is playable.
+  function stepSong(songs, currentId, dir) {
+    var ok = songs.filter(function (s) { return !s.error; });
+    if (!ok.length) return "";
+    var i = -1;
+    for (var k = 0; k < ok.length; k++) if (ok[k].id === currentId) i = k;
+    if (i < 0) return ok[0].id;
+    return ok[((i + (dir < 0 ? -1 : 1)) % ok.length + ok.length) % ok.length].id;
+  }
+
   return {
+    stepSong: stepSong,
     DEFAULT_LOW: DEFAULT_LOW, DEFAULT_HIGH: DEFAULT_HIGH, SCREEN_MM: SCREEN_MM,
     isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
     keyLayout: keyLayout, keyAt: keyAt, rulerEdges: rulerEdges, seatScale: seatScale,

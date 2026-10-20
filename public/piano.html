@@ -25,6 +25,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #status b.ok{color:var(--green)}#status b.bad{color:var(--amber)}
 #hint{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(42,18,22,.95);border:.12rem solid var(--red);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
 #hint.on{opacity:1}
+#toast{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
+#toast.on{opacity:1}
+#keys{font-size:.8rem;color:var(--txt2);opacity:.65;line-height:1.5}
 #panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
 #panel.on{display:block}
 #panel h1{font-size:1.7rem;font-weight:800;margin-bottom:.4rem}
@@ -41,6 +44,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
   <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
   <div id="status"></div>
+  <div id="keys">◀ ▶ song · ⏪⏩ wall</div>
 </div>
 <div id="right" class="side">
   <div><div class="lbl">Accuracy</div><div class="val" id="acc">-</div></div>
@@ -48,8 +52,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div><div class="lbl">Waiting for</div><div class="val" id="want">-</div></div>
 </div>
 <div id="hint"></div>
+<div id="toast"></div>
 <div id="panel"></div>
 <script src="/piano-core.js"></script>
+<script src="/switch.js"></script>
 <script>
 (function () {
   "use strict";
@@ -70,7 +76,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var mode = "play";        // play | cal1 | cal2 | cal3
   var calWarn = "";
 
-  var rawSong = null, song = null, session = null, clock = -LEAD_IN, paused = false;
+  var songs = [], songId = "", rawSong = null, song = null, session = null, clock = -LEAD_IN, paused = false;
   var held = {};            // note -> true while the key is down
   var flash = {};           // note -> { color, until }
   var hintUntil = 0;
@@ -118,19 +124,49 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     report();
   }
 
-  function loadSong() {
+  // Which song plays: the one asked for (remote or link page), else ?song=, else the last one
+  // played on this TV, else the first song in songs/.
+  function remembered() { try { return localStorage.getItem("pianoSong") || ""; } catch (e) { return ""; } }
+  function loadSong(id) {
     var want = /[?&]song=([^&]+)/.exec(location.search);
     getJson("/api/piano/songs", function (err, list) {
-      if (err) { $("title").textContent = "Songs unavailable"; return setTimeout(loadSong, 10000); }
-      var ok = list.songs.filter(function (s) { return !s.error; });
-      var pick = (want && ok.filter(function (s) { return s.id === decodeURIComponent(want[1]); })[0]) || ok[0];
+      if (err) { $("title").textContent = "Songs unavailable"; return setTimeout(function () { loadSong(id); }, 10000); }
+      songs = list.songs;
+      var ok = songs.filter(function (s) { return !s.error; });
+      function find(x) { return x && ok.filter(function (s) { return s.id === x; })[0]; }
+      var pick = find(id) || find(want && decodeURIComponent(want[1])) || find(remembered()) || ok[0];
       if (!pick) { $("title").textContent = "No songs in songs/"; return; }
       getJson("/api/piano/songs/" + encodeURIComponent(pick.id), function (err2, s) {
-        if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(loadSong, 10000); }
-        rawSong = s; song = null; session = null;
+        if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(function () { loadSong(id); }, 10000); }
+        songId = pick.id;
+        try { localStorage.setItem("pianoSong", songId); } catch (e) {}
+        rawSong = s; song = null; session = null; held = {};
         fitSong();
+        if (id) toast(s.title);
       });
     });
+  }
+
+  // Remote Left / Right (and the link page) pick the previous / next song.
+  function stepSong(dir) {
+    if (mode !== "play" || !songs.length) return;
+    loadSong(P.stepSong(songs, songId, dir));
+  }
+
+  var toastTimer = null;
+  function toast(text) {
+    var el = $("toast");
+    el.textContent = text; el.className = "on";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = ""; }, 1800);
+  }
+
+  var leaving = false;
+  function toWall() {
+    if (leaving) return;
+    leaving = true;
+    toast("Switching to wall…");
+    setTimeout(function () { location.href = TVSwitch.PATHS.wall; }, 150);
   }
 
   function restart() {
@@ -220,14 +256,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "back") back();
     else if (c.cmd === "restart") { if (mode !== "play") { mode = "play"; setLayout(cal); } restart(); }
     else if (c.cmd === "pause" && mode === "play") { paused = !paused; report(); }
+    else if (c.cmd === "song") { if (mode === "play" && c.id) loadSong(c.id); }
   }
 
-  // Remote: ◀ ▶ move the edge line 1 device pixel (10 when held or with Shift), OK confirms,
-  // Back steps back. In play, OK pauses (or replays a finished song) and ▼ or C calibrates.
+  // Remote: while calibrating ◀ ▶ move the edge line 1 device pixel (10 when held or with Shift), OK
+  // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song, OK pauses (or replays a
+  // finished song), ▼ or C calibrates, and ⏪ / ⏩ (or M) switch the TV to the wall.
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
-    if (k === "ArrowLeft") { nudge(-step); e.preventDefault(); }
-    else if (k === "ArrowRight") { nudge(step); e.preventDefault(); }
+    if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
+    else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) stepSong(-1); } else nudge(-step); e.preventDefault(); }
+    else if (k === "ArrowRight") { if (mode === "play") { if (!e.repeat) stepSong(1); } else nudge(step); e.preventDefault(); }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
     else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play") { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
@@ -248,6 +287,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       }
     });
     es.addEventListener("control", function (m) { control(JSON.parse(m.data)); });
+    es.addEventListener("switch", function (m) {
+      try { if (TVSwitch.pathFor(JSON.parse(m.data).to, location.pathname)) toWall(); } catch (e) {}
+    });
     es.addEventListener("calibration", function (m) {
       var c = JSON.parse(m.data);
       if (c && (!saved || c.savedAt !== saved.savedAt)) { saved = c; if (mode === "play") applyCalibration(); }
@@ -282,7 +324,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function snapshot() {
     return {
       mode: mode, paused: paused,
-      song: song ? song.title : "", step: session ? session.index : 0, steps: session ? session.steps.length : 0,
+      songId: songId, song: song ? song.title : "", step: session ? session.index : 0, steps: session ? session.steps.length : 0,
       done: session ? session.done : false,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,

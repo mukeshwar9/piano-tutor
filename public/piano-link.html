@@ -24,6 +24,7 @@ h1 small{font-size:14px;font-weight:500;color:var(--mut);margin-left:8px}
 .btns{display:flex;flex-wrap:wrap;gap:8px}
 button{font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:#1c2638;border:1px solid var(--line2);border-radius:10px;padding:10px 14px;min-width:52px;cursor:pointer}
 button:active{background:#2a3a55}
+select{font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:#1c2638;border:1px solid var(--line2);border-radius:10px;padding:10px 14px;min-width:200px}
 button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
 #play{font-size:15px;color:var(--txt2);line-height:1.6}
 #play b{color:var(--txt)}
@@ -51,6 +52,15 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
 <div class="card">
   <div class="lbl">On the TV</div>
   <div id="play">No TV state yet.</div>
+</div>
+
+<div class="card">
+  <div class="lbl">TV screen and song</div>
+  <div class="btns">
+    <button id="bWall">Show the wall</button><button id="bPiano" class="pri">Show the piano</button>
+    <select id="songs" aria-label="Song"></select>
+  </div>
+  <div class="sub" id="swStatus" style="margin-top:8px">On the Fire TV remote, ⏪ or ⏩ also switches; ◀ ▶ pick the song while the piano is up.</div>
 </div>
 
 <div class="card">
@@ -99,9 +109,27 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
     $("log").textContent = logLines.join("\n");
   }
 
-  function control(cmd, px) {
-    fetch("/api/piano/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd: cmd, px: px || 0 }) });
+  function control(cmd, px, id) {
+    fetch("/api/piano/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd: cmd, px: px || 0, id: id || "" }) });
   }
+
+  function showOnTv(to) {
+    $("swStatus").textContent = "Asking the TV to show the " + to + "…";
+    fetch("/api/switch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: to }) })
+      .then(function (r) { return r.json(); })
+      .then(function (p) { $("swStatus").textContent = p.tv + p.wall ? "Sent. The TV switches within a second." : "Sent, but no TV page is open to receive it."; })
+      .catch(function () { $("swStatus").textContent = "Could not reach the server."; });
+  }
+
+  var songList = [];
+  function loadSongs() {
+    fetch("/api/piano/songs").then(function (r) { return r.json(); }).then(function (d) {
+      songList = d.songs.filter(function (s) { return !s.error; });
+      $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + "</option>"; }).join("");
+      markSong();
+    }).catch(function () { setTimeout(loadSongs, 5000); });
+  }
+  function markSong() { if (tvState && tvState.songId) $("songs").value = tvState.songId; }
 
   function connect() {
     var es = new EventSource("/api/piano/events?role=link");
@@ -110,7 +138,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
     es.addEventListener("presence", function (m) {
       var p = JSON.parse(m.data);
       dot("dTv", p.tv ? "ok" : "warn");
-      $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : "No TV page open: open /piano on the TV";
+      $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
   }
@@ -118,6 +146,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
   function renderState() {
     var s = tvState;
     if (!s) return;
+    markSong();
     var mode = { play: s.done ? "finished" : s.paused ? "paused" : "playing", cal1: "calibrating: lowest key", cal2: "calibrating: highest key", cal3: "calibrating: check" }[s.mode] || s.mode;
     $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
       "<br>Waiting for <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · streak " + s.streak +
@@ -222,6 +251,9 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
     var want = tvState && tvState.waitingFor.length ? P.parseNote(tvState.waitingFor[0]) : 60;
     tap([want + (want % 12 === 11 ? -1 : 1)]);
   };
+  $("bWall").onclick = function () { showOnTv("wall"); };
+  $("bPiano").onclick = function () { showOnTv("piano"); };
+  $("songs").onchange = function () { control("song", 0, $("songs").value); };
   $("bCal").onclick = function () { control("calibrate"); };
   $("bOk").onclick = function () { control("ok"); };
   $("bBack").onclick = function () { control("back"); };
@@ -238,6 +270,7 @@ button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
   document.addEventListener("visibilitychange", wake);
 
   buildKeyboard();
+  loadSongs();
   connect();
   startMidi();
   wake();

@@ -62,15 +62,32 @@ assert.strictEqual(fitted.shifted, 2);
 
 // Song file loader: the shipped song loads, fits 61 keys and is in C major around middle C.
 const songs = piano.loadSongs(path.join(__dirname, "..", "songs"));
-assert.strictEqual(songs.length, 1, "MVP ships one song");
+assert.deepStrictEqual(songs.map((x) => x.id), ["ode-to-joy", "twinkle-twinkle-little-star"]);
 const ode = songs[0];
 assert(!ode.error, ode.error);
-assert.strictEqual(ode.id, "ode-to-joy");
 assert(ode.fits61);
 assert.strictEqual(ode.notes.length, 62);
 assert.strictEqual(ode.beats, 64, "16 bars of 4/4");
 assert.strictEqual(P.noteName(ode.lowest), "G3");
 assert.strictEqual(P.noteName(ode.highest), "G4");
+// Twinkle Twinkle: 12 bars of 4/4, six 7-note phrases, right hand C4-A4.
+const twinkle = songs[1];
+assert(!twinkle.error, twinkle.error);
+assert(twinkle.fits61);
+assert.strictEqual(twinkle.notes.length, 42);
+assert.strictEqual(twinkle.beats, 48);
+assert.strictEqual(twinkle.hand, "right");
+assert.strictEqual(P.noteName(twinkle.lowest), "C4");
+assert.strictEqual(P.noteName(twinkle.highest), "A4");
+assert.deepStrictEqual(twinkle.notes.slice(0, 7).map((n) => P.noteName(n.note)), ["C4", "C4", "G4", "G4", "A4", "A4", "G4"]);
+// Picking a song with the remote: next / previous wrap, broken songs are skipped.
+const list = [{ id: "a" }, { id: "broken", error: "x" }, { id: "b" }, { id: "c" }];
+assert.strictEqual(P.stepSong(list, "a", 1), "b");
+assert.strictEqual(P.stepSong(list, "c", 1), "a", "wraps forward");
+assert.strictEqual(P.stepSong(list, "a", -1), "c", "wraps back");
+assert.strictEqual(P.stepSong(list, "unknown", 1), "a", "unknown current starts at the first song");
+assert.strictEqual(P.stepSong([{ id: "only" }], "only", 1), "only");
+assert.strictEqual(P.stepSong([{ id: "x", error: "e" }], "x", 1), "");
 // Bad song files are reported, not dropped.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "piano-test-"));
 fs.writeFileSync(path.join(tmp, "broken.json"), "{");
