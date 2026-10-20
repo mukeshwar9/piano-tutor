@@ -48,6 +48,7 @@ select.bar{min-width:0}
 <div class="card">
   <div class="lbl">Connection</div>
   <div class="row"><span class="dot" id="dMidi"></span><span id="sMidi">Starting Web MIDI…</span></div>
+  <div class="row"><span class="dot" id="dOut"></span><span id="sOut">Sound out: waiting for Web MIDI…</span></div>
   <div class="row"><span class="dot" id="dSrv"></span><span id="sSrv">Connecting to the server…</span></div>
   <div class="row"><span class="dot" id="dTv"></span><span id="sTv">TV: unknown</span></div>
   <div class="sub" id="midiHelp"></div>
@@ -72,6 +73,10 @@ select.bar{min-width:0}
   <div class="btns">
     <button id="bRight" data-hand="right">Right hand</button><button id="bLeft" data-hand="left">Left hand</button><button id="bBoth" data-hand="both">Both hands</button>
   </div>
+  <div class="btns" style="margin-top:8px">
+    <button id="bListen" class="pri">Hear it first</button><button id="bFingers">Finger numbers</button>
+  </div>
+  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo, for the hand you practise; then it is your turn. On the remote: ⏪.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
     <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
@@ -110,6 +115,7 @@ select.bar{min-width:0}
   var P = window.PianoCore;
   var $ = function (id) { return document.getElementById(id); };
   var tvState = null, logLines = [];
+  var echo = P.echoFilter(150);
 
   function dot(id, cls) { $(id).className = "dot " + (cls || ""); }
 
@@ -119,9 +125,11 @@ select.bar{min-width:0}
   function send(events, source) {
     fetch("/api/piano/input", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ events: events }) })
       .catch(function () { dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable: notes are not reaching the TV"; });
-    events.forEach(function (e) {
-      logLines.unshift(new Date().toLocaleTimeString() + "  " + (e.on ? "on " : "off") + "  " + P.noteName(e.note) + "  vel " + e.velocity + "  " + source);
-    });
+    events.forEach(function (e) { logNote(e.on, e.note, e.velocity, source); });
+  }
+
+  function logNote(on, note, velocity, source) {
+    logLines.unshift(new Date().toLocaleTimeString() + "  " + (on ? "on " : "off") + "  " + P.noteName(note) + "  vel " + velocity + "  " + source);
     logLines = logLines.slice(0, 8);
     $("log").textContent = logLines.join("\n");
   }
@@ -162,6 +170,10 @@ select.bar{min-width:0}
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
+    es.addEventListener("listen", function (m) {
+      var d = JSON.parse(m.data);
+      if (d.stop) stopPlaying(); else play(d.events);
+    });
   }
 
   function renderState() {
@@ -169,7 +181,7 @@ select.bar{min-width:0}
     if (!s) return;
     markSong();
     renderPractice(s);
-    var mode = { play: s.done ? "finished" : s.paused ? "paused" : "playing", cal1: "calibrating: lowest key", cal2: "calibrating: highest key", cal3: "calibrating: check" }[s.mode] || s.mode;
+    var mode = { play: s.listening ? "listening to " + s.listening : s.done ? "finished" : s.paused ? "paused" : "playing", cal1: "calibrating: lowest key", cal2: "calibrating: highest key", cal3: "calibrating: check" }[s.mode] || s.mode;
     var hands = { right: "<span class=rh>right hand</span>", left: "<span class=lh>left hand</span>", both: "<span class=rh>both</span> <span class=lh>hands</span>" };
     $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · " + (hands[s.playHand] || "") + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
       (s.loop ? "<br>Loop " + loopText(s.loop) + ": <b>" + s.cleanPasses + " of " + s.cleanNeeded + "</b> clean in a row · pass " + (s.passes + (s.done ? 0 : 1)) + (s.done ? " · <b>mastered</b>" : "") : "") +
@@ -201,23 +213,48 @@ select.bar{min-width:0}
       if (s.loop) { $("loopFrom").value = s.loop.from; $("loopTo").value = s.loop.to; }
     }
     $("bLoopOff").disabled = !s.loop;
+    $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
+    $("bListen").className = s.listening ? "sel" : "pri";
+    $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
+    $("bFingers").className = s.fingers === false ? "" : "sel";
+    if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
+    listenShown = !!s.listening;
   }
+  var listenShown = false;
 
   // ---------- Web MIDI ----------
 
   var access = null, device = "";
 
+  var out = null, outName = "", played = [];
+
   function onMidi(e) {
-    var d = e.data, type = d[0] & 0xf0;
-    if (type === 0x90 && d[2] > 0) send([{ on: true, note: d[1], velocity: d[2] }], "midi");
-    else if (type === 0x80 || type === 0x90) send([{ on: false, note: d[1], velocity: 0 }], "midi");
+    var d = e.data, type = d[0] & 0xf0, t = e.timeStamp || performance.now();
+    if (type !== 0x80 && type !== 0x90) return;
+    var on = type === 0x90 && d[2] > 0;
+    // The keyboard sending back what Hear it first played is not the player's input.
+    if (echo.match(on, d[1], t)) return logNote(on, d[1], d[2], "echo, ignored");
+    if (on) send([{ on: true, note: d[1], velocity: d[2] }], "midi");
+    else send([{ on: false, note: d[1], velocity: 0 }], "midi");
+  }
+
+  // The output that plays Hear it first: the one named like an open input (the same USB cable),
+  // else the first output.
+  function pickOutput(inputNames) {
+    var all = [];
+    access.outputs.forEach(function (o) { all.push(o); });
+    var same = all.filter(function (o) { return inputNames.indexOf(o.name) >= 0; });
+    return same[0] || all[0] || null;
   }
 
   function scan() {
     var names = [];
     access.inputs.forEach(function (input) { input.onmidimessage = onMidi; names.push(input.name || "MIDI input"); });
-    var name = names.join(", ");
-    if (name !== device) { device = name; postDevice(); }
+    out = pickOutput(names);
+    var name = names.join(", "), oname = out ? out.name || "MIDI output" : "";
+    if (name !== device || oname !== outName) { device = name; outName = oname; postDevice(); }
+    dot("dOut", out ? "ok" : "warn");
+    $("sOut").textContent = out ? "Sound out: " + oname + " (Hear it first plays here)" : "Sound out: no MIDI output, Hear it first only lights the keys on the TV";
     if (names.length) { dot("dMidi", "ok"); $("sMidi").textContent = "Keyboard: " + name; $("midiHelp").textContent = ""; }
     else {
       dot("dMidi", "warn"); $("sMidi").textContent = "No MIDI keyboard found";
@@ -226,7 +263,7 @@ select.bar{min-width:0}
   }
 
   function postDevice() {
-    fetch("/api/piano/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: device }) }).catch(function () {});
+    fetch("/api/piano/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: device, output: outName }) }).catch(function () {});
   }
 
   function startMidi() {
@@ -235,6 +272,7 @@ select.bar{min-width:0}
       $("midiHelp").textContent = window.isSecureContext ? "Use Chrome." : "Web MIDI needs localhost or HTTPS: open http://localhost:4410/piano/link in Chrome on the Mac.";
       return;
     }
+    dot("dOut", "bad"); $("sOut").textContent = "Sound out: needs Web MIDI";
     navigator.requestMIDIAccess({ sysex: false }).then(function (a) {
       access = a; a.onstatechange = scan; scan();
       // Keep reporting the device so the TV still knows after a server restart.
@@ -243,6 +281,32 @@ select.bar{min-width:0}
       dot("dMidi", "bad"); $("sMidi").textContent = "MIDI access refused: " + (err && err.message || err);
       $("midiHelp").textContent = "Allow MIDI devices for this site in Chrome's site settings, then reload.";
     });
+  }
+
+  // ---------- hear it first ----------
+
+  // Every message is queued on the MIDI output with its own timestamp, so timing holds even when
+  // Chrome throttles timers in a background tab.
+  function play(events) {
+    if (!out) { $("listenStatus").textContent = "No MIDI output to play on: the TV only lights the keys."; return; }
+    stopPlaying();
+    var msgs = P.midiMessages(events, performance.now() + P.LISTEN_LEAD_MS);
+    msgs.forEach(function (m) {
+      out.send(m.data, m.time);
+      echo.expect(m.data[0] === 0x90, m.data[1], m.time);
+    });
+    played = events.map(function (e) { return e.note; });
+    $("listenStatus").textContent = "Playing " + events.length + " notes on " + outName + "…";
+  }
+
+  // Stops a playback early: clears what is still queued (where Chrome supports it) and releases every
+  // key it used.
+  function stopPlaying() {
+    if (!out || !played.length) return;
+    try { if (out.clear) out.clear(); } catch (e) {}
+    played.forEach(function (n) { out.send([0x80, n, 0]); });
+    out.send([0xb0, 123, 0]);
+    played = []; echo.clear();
   }
 
   // ---------- test input ----------
@@ -315,6 +379,8 @@ select.bar{min-width:0}
   $("loopTo").onchange = function () { if (Number($("loopTo").value) < Number($("loopFrom").value)) $("loopFrom").value = $("loopTo").value; };
   $("bLoop").onclick = function () { loopControl(Number($("loopFrom").value), Number($("loopTo").value)); };
   $("bLoopOff").onclick = function () { loopControl(0, 0); };
+  $("bListen").onclick = function () { control("listen"); };
+  $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {
     b.onclick = function () { control("nudge", Number(b.dataset.px)); };
   });

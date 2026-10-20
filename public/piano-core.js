@@ -117,14 +117,21 @@
 
   // ---------- songs ----------
 
+  // A finger number: 1 (thumb) to 5 (little finger).
+  function isFinger(f) {
+    return typeof f === "number" && Math.floor(f) === f && f >= 1 && f <= 5;
+  }
+
   // "right" / "left" from a song or note hand field ("R", "L", "rh", "left hand", ...), or "" when unknown.
   function handName(h) {
     var c = String(h == null ? "" : h).trim().toLowerCase().charAt(0);
     return c === "r" ? "right" : c === "l" ? "left" : "";
   }
 
-  // Song file: { title, hand, notes: [[name, startBeat, lengthBeats, hand?], ...], bpm, beatsPerBar, ... }.
+  // Song file: { title, hand, notes: [[name, startBeat, lengthBeats, hand?, finger?], ...], bpm, beatsPerBar, ... }.
   // A note without its own hand ("R" / "L") belongs to the song's hand, which defaults to right.
+  // finger is 1 (thumb) to 5 (little finger); a number in the hand's place is a finger with the
+  // song's hand, so ["E4", 0, 1, 3] and ["E4", 0, 1, "R", 3] are the same note.
   // Returns { song } or { error }. Notes are sorted and given MIDI numbers.
   function normalizeSong(raw, id) {
     if (!raw || typeof raw !== "object") return { error: "not an object" };
@@ -134,12 +141,14 @@
     if (!songHand) return { error: "bad hand: " + JSON.stringify(raw.hand) };
     var notes = [], present = {};
     for (var i = 0; i < raw.notes.length; i++) {
-      var r = raw.notes[i], n = Array.isArray(r) ? r : [r && r.note, r && r.start, r && r.length, r && r.hand];
+      var r = raw.notes[i], n = Array.isArray(r) ? r : [r && r.note, r && r.start, r && r.length, r && r.hand, r && r.finger];
+      if (typeof n[3] === "number") n = [n[0], n[1], n[2], null, n[3]];
       var midi = typeof n[0] === "number" ? n[0] : parseNote(n[0]);
       var start = Number(n[1]), len = Number(n[2]);
       var hand = n[3] == null || n[3] === "" ? songHand : handName(n[3]);
-      if (!(midi >= 0 && midi <= 127) || !isFinite(start) || start < 0 || !(len > 0) || !hand) return { error: "bad note #" + (i + 1) + ": " + JSON.stringify(r) };
-      notes.push({ note: midi, start: start, length: len, hand: hand });
+      var finger = n[4] == null ? 0 : n[4];
+      if (!(midi >= 0 && midi <= 127) || !isFinite(start) || start < 0 || !(len > 0) || !hand || !(n[4] == null || isFinger(finger))) return { error: "bad note #" + (i + 1) + ": " + JSON.stringify(r) };
+      notes.push({ note: midi, start: start, length: len, hand: hand, finger: finger });
       present[hand] = true;
     }
     notes.sort(function (a, b) { return a.start - b.start || a.note - b.note; });
@@ -167,7 +176,7 @@
       while (n < low) n += 12;
       while (n > high) n -= 12;
       if (n !== x.note) shifted++;
-      return { note: n, start: x.start, length: x.length, hand: x.hand || "right", shifted: n !== x.note };
+      return { note: n, start: x.start, length: x.length, hand: x.hand || "right", finger: x.finger || 0, shifted: n !== x.note };
     });
     var out = {};
     for (var k in song) out[k] = song[k];
@@ -177,13 +186,16 @@
   }
 
   // Group notes that start together into steps: wait mode waits for each step in turn. Each step
-  // records which hand plays each of its notes.
+  // records which hand plays each of its notes, and the finger when the song gives one.
   function buildSteps(notes) {
     var steps = [];
     for (var i = 0; i < notes.length; i++) {
       var last = steps[steps.length - 1], n = notes[i];
-      if (!last || Math.abs(last.start - n.start) >= 1e-6) steps.push(last = { start: n.start, notes: [], hands: {} });
-      if (last.notes.indexOf(n.note) < 0) { last.notes.push(n.note); last.hands[n.note] = n.hand || "right"; }
+      if (!last || Math.abs(last.start - n.start) >= 1e-6) steps.push(last = { start: n.start, notes: [], hands: {}, fingers: {} });
+      if (last.notes.indexOf(n.note) < 0) {
+        last.notes.push(n.note); last.hands[n.note] = n.hand || "right";
+        if (n.finger) last.fingers[n.note] = n.finger;
+      }
     }
     return steps;
   }
@@ -333,6 +345,81 @@
     return s;
   }
 
+  // ---------- hear it first ----------
+
+  // Each note is released a little early when the song is played back, so a repeated note is struck
+  // again instead of blurring into one long note: 10% of its length, at most this many ms.
+  var LISTEN_GAP_MS = 60;
+  // The link page starts playing this long after the request reaches it and the TV starts lighting
+  // keys this long after its request returns, so sound and lights start together.
+  var LISTEN_LEAD_MS = 150;
+
+  // What "hear it first" plays: bars from..to of song at its tempo, for one hand or both.
+  // Returns { from, to, startBeat, endBeat, beatMs, ms, events: [{ note, hand, finger, at, dur }] },
+  // with at and dur in milliseconds from the start of bar from. Notes are clipped at the end of the
+  // range; notes that start before it are left out.
+  function listenPlan(song, opts) {
+    var hand = playHand(song, opts.hand);
+    var range = clampLoop(song, { from: opts.from, to: opts.to }) || { from: 1, to: 1 };
+    var bpb = song.beatsPerBar, lo = (range.from - 1) * bpb, hi = range.to * bpb, beatMs = 60000 / song.bpm;
+    var events = [];
+    for (var i = 0; i < song.notes.length; i++) {
+      var n = song.notes[i];
+      if (hand !== "both" && (n.hand || "right") !== hand) continue;
+      if (n.start < lo - 1e-6 || n.start >= hi - 1e-6) continue;
+      var ms = Math.min(n.length, hi - n.start) * beatMs;
+      events.push({ note: n.note, hand: n.hand || "right", finger: n.finger || 0, at: Math.round((n.start - lo) * beatMs), dur: Math.round(ms - Math.min(ms * 0.1, LISTEN_GAP_MS)) });
+    }
+    return { from: range.from, to: range.to, hand: hand, startBeat: lo, endBeat: hi, beatMs: beatMs, ms: Math.round((hi - lo) * beatMs), events: events };
+  }
+
+  // Notes of a plan sounding elapsed ms after it started: note -> event.
+  function sounding(plan, elapsed) {
+    var out = {};
+    for (var i = 0; i < plan.events.length; i++) {
+      var e = plan.events[i];
+      if (elapsed >= e.at && elapsed < e.at + e.dur) out[e.note] = e;
+    }
+    return out;
+  }
+
+  // Raw MIDI messages for a plan's events, starting at t0 (a performance.now() time): note on and
+  // note off on channel 1, in time order with offs before ons at the same moment so a repeated key
+  // is released before it is struck again.
+  function midiMessages(events, t0, velocity) {
+    var v = velocity || 80, out = [];
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i];
+      if (!(e.note >= 0 && e.note <= 127)) continue;
+      out.push({ time: t0 + e.at, data: [0x90, e.note, v] });
+      out.push({ time: t0 + e.at + Math.max(1, e.dur), data: [0x80, e.note, 0] });
+    }
+    out.sort(function (a, b) { return a.time - b.time || a.data[0] - b.data[0]; });
+    return out;
+  }
+
+  // Notes the keyboard sends back while it plays what it was sent (local echo, MIDI thru) must not
+  // count as the player's. expect() records each message sent; match() is true, once, for an
+  // incoming message of the same kind and key within windowMs of when it was due.
+  function echoFilter(windowMs) {
+    var w = windowMs || 150, pending = [];
+    return {
+      expect: function (on, note, time) { pending.push({ on: on, note: note, time: time }); },
+      match: function (on, note, time) {
+        var keep = [], hit = false;
+        for (var i = 0; i < pending.length; i++) {
+          var p = pending[i];
+          if (!hit && p.on === on && p.note === note && Math.abs(p.time - time) <= w) { hit = true; continue; }
+          if (p.time > time - w) keep.push(p);
+        }
+        pending = keep;
+        return hit;
+      },
+      clear: function () { pending = []; },
+      size: function () { return pending.length; },
+    };
+  }
+
   // Next hand mode when the remote cycles through them.
   var HANDS = ["right", "left", "both"];
   function nextHand(hand) { return HANDS[(HANDS.indexOf(hand) + 1) % HANDS.length]; }
@@ -354,8 +441,9 @@
     isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
     keyLayout: keyLayout, keyAt: keyAt, rulerEdges: rulerEdges, seatScale: seatScale,
     scaleCalibration: scaleCalibration, defaultCalibration: defaultCalibration, validCalibration: validCalibration,
-    handName: handName, normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,
+    handName: handName, isFinger: isFinger, normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,
     barCount: barCount, barOf: barOf, playHand: playHand, clampLoop: clampLoop, nextHand: nextHand, LOOP_CLEAN: LOOP_CLEAN,
     advanceClock: advanceClock, hint: hint, createSession: createSession,
+    listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
   };
 });

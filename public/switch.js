@@ -11,6 +11,11 @@
   var KEYS = ["MediaRewind", "MediaFastForward", "m", "M"];
   var KEY_CODES = [227, 228];
 
+  // On the piano page Rewind plays the bar first ("hear it first") and Fast-Forward alone goes back
+  // to the wall; on the wall both still switch. "P" is for keyboards.
+  var LISTEN_KEYS = ["MediaRewind", "p", "P"];
+  var LISTEN_KEY_CODES = [227];
+
   var PATHS = { wall: "/", piano: "/piano" };
 
   function isPiano(pathname) {
@@ -20,6 +25,11 @@
   function isSwitchKey(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     return KEYS.indexOf(e.key) >= 0 || ((e.key === undefined || e.key === "Unidentified") && KEY_CODES.indexOf(e.keyCode) >= 0);
+  }
+
+  function isListenKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    return LISTEN_KEYS.indexOf(e.key) >= 0 || ((e.key === undefined || e.key === "Unidentified") && LISTEN_KEY_CODES.indexOf(e.keyCode) >= 0);
   }
 
   // The page a toggle press goes to from pathname.
@@ -33,5 +43,5 @@
     return isPiano(pathname) === (to === "piano") ? "" : PATHS[to];
   }
 
-  return { KEYS: KEYS, PATHS: PATHS, isSwitchKey: isSwitchKey, togglePath: togglePath, pathFor: pathFor, isPiano: isPiano };
+  return { KEYS: KEYS, PATHS: PATHS, isSwitchKey: isSwitchKey, isListenKey: isListenKey, togglePath: togglePath, pathFor: pathFor, isPiano: isPiano };
 });

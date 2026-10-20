@@ -1,4 +1,4 @@
-// Piano mode: calibration math, song loading and wait-mode logic. Run: node test/piano-core.test.js
+// Piano mode: calibration math, song loading, wait-mode logic and Hear it first. Run: node test/piano-core.test.js
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -91,6 +91,26 @@ for (const s of [ode, twinkle]) {
     assert(s.notes.some((m) => m.hand === "right" && m.start === n.start), `${s.id} left hand at ${n.start} has a melody note`);
   }
 }
+// Both songs carry a finger (1-5) on every note: Ode to Joy's right hand stays in C position
+// (C4 thumb to G4 little finger) apart from the low G3 thumb, left-hand roots are C3 thumb, G2 / F2 below.
+for (const s of [ode, twinkle]) for (const n of s.notes) assert(P.isFinger(n.finger), `${s.id} ${P.noteName(n.note)} at ${n.start} has finger ${n.finger}`);
+for (const n of ode.notes.filter((x) => x.hand === "right" && x.note >= 60)) assert.strictEqual(n.finger, [1, 0, 2, 0, 3, 4, 0, 5][n.note - 60], `ode ${P.noteName(n.note)} at ${n.start}`);
+assert.deepStrictEqual(ode.notes.filter((n) => n.note === 55).map((n) => n.finger), [1]);
+assert.deepStrictEqual([...new Set(ode.notes.filter((n) => n.hand === "left").map((n) => P.noteName(n.note) + ":" + n.finger))].sort(), ["C3:1", "G2:5"]);
+assert.deepStrictEqual(twinkle.notes.filter((n) => n.hand === "right").slice(0, 21).map((n) => n.finger), [1, 1, 4, 4, 5, 5, 4, 4, 4, 3, 3, 2, 2, 1, 5, 5, 4, 4, 3, 3, 2]);
+assert.deepStrictEqual([...new Set(twinkle.notes.filter((n) => n.hand === "left").map((n) => P.noteName(n.note) + ":" + n.finger))].sort(), ["C3:1", "F2:5", "G2:4"]);
+
+// Finger format: optional fifth field, or a number in the hand's place; old notes stay valid.
+const fing = P.normalizeSong({ title: "f", notes: [["C4", 0, 1], ["D4", 1, 1, 2], ["C3", 0, 1, "L", 5], { note: "E4", start: 2, length: 1, finger: 3 }, ["F4", 3, 1, "R"]] }).song;
+assert.deepStrictEqual(fing.notes.map((n) => [P.noteName(n.note), n.hand, n.finger]), [["C3", "left", 5], ["C4", "right", 0], ["D4", "right", 2], ["E4", "right", 3], ["F4", "right", 0]]);
+const lf = P.normalizeSong({ title: "lf", hand: "left", notes: [["C3", 0, 1, 1]] }).song;
+assert.deepStrictEqual([lf.notes[0].hand, lf.notes[0].finger], ["left", 1], "a bare finger takes the song's hand");
+for (const bad of [["C4", 0, 1, "R", 6], ["C4", 0, 1, "R", 0], ["C4", 0, 1, 2.5], ["C4", 0, 1, "R", "3"], ["C4", 0, 1, -1]]) {
+  assert(P.normalizeSong({ title: "x", notes: [bad] }).error, `finger refused: ${JSON.stringify(bad)}`);
+}
+assert.strictEqual(P.fitSong(fing, 36, 96).notes[2].finger, 2, "fitting keeps the finger");
+assert.strictEqual(P.fitSong({ notes: [{ note: 60, start: 0, length: 1 }] }, 36, 96).notes[0].finger, 0);
+
 // Picking a song with the remote: next / previous wrap, broken songs are skipped.
 const list = [{ id: "a" }, { id: "broken", error: "x" }, { id: "b" }, { id: "c" }];
 assert.strictEqual(P.stepSong(list, "a", 1), "b");
@@ -120,7 +140,8 @@ fs.rmSync(tmp, { recursive: true });
 
 // Steps: notes starting together form one chord step.
 const steps = P.buildSteps([{ note: 60, start: 0 }, { note: 64, start: 0 }, { note: 67, start: 1 }]);
-assert.deepStrictEqual(steps, [{ start: 0, notes: [60, 64], hands: { 60: "right", 64: "right" } }, { start: 1, notes: [67], hands: { 67: "right" } }]);
+assert.deepStrictEqual(steps, [{ start: 0, notes: [60, 64], hands: { 60: "right", 64: "right" }, fingers: {} }, { start: 1, notes: [67], hands: { 67: "right" }, fingers: {} }]);
+assert.deepStrictEqual(P.buildSteps([{ note: 60, start: 0, finger: 1 }, { note: 48, start: 0, hand: "left", finger: 5 }])[0].fingers, { 60: 1, 48: 5 });
 
 // Clock runs at tempo and stops at the step still waiting.
 near(P.advanceClock(0, 750, 80, 10), 1, "80 bpm, 750 ms is one beat");
@@ -271,5 +292,56 @@ assert.deepStrictEqual(loopLeft.press(48), { result: "done", clean: true });
 // A loop on bars where the chosen hand has no notes has nothing to play.
 const emptyLoop = P.createSession(P.normalizeSong({ title: "e", beatsPerBar: 4, notes: [["C4", 0, 1], ["C3", 4, 1, "L"]] }).song, { hand: "left", loop: { from: 1, to: 1 } });
 assert(emptyLoop.done);
+
+// Hear it first: bar 4 of Ode to Joy (E. D D) at 80 bpm, 750 ms a beat, right hand only.
+const plan4 = P.listenPlan(odeSong, { hand: "right", from: 4, to: 4 });
+assert.deepStrictEqual([plan4.from, plan4.to, plan4.startBeat, plan4.endBeat, plan4.ms, plan4.hand], [4, 4, 12, 16, 3000, "right"]);
+near(plan4.beatMs, 750, "beat length");
+assert.deepStrictEqual(plan4.events.map((e) => [P.noteName(e.note), e.at, e.dur, e.finger]), [["E4", 0, 1065, 3], ["D4", 1125, 338, 2], ["D4", 1500, 1440, 2]]);
+// The repeated D is released before it is struck again; long notes lose at most 60 ms.
+assert(plan4.events[1].at + plan4.events[1].dur < plan4.events[2].at);
+// Both hands add the left-hand C3 and G2 of bar 4; left hand alone plays only them.
+const plan4both = P.listenPlan(odeSong, { hand: "both", from: 4, to: 4 });
+assert.deepStrictEqual(plan4both.events.map((e) => [P.noteName(e.note), e.at, e.hand]), [["C3", 0, "left"], ["E4", 0, "right"], ["D4", 1125, "right"], ["G2", 1500, "left"], ["D4", 1500, "right"]]);
+assert.deepStrictEqual(P.listenPlan(odeSong, { hand: "left", from: 4, to: 4 }).events.map((e) => [P.noteName(e.note), e.at, e.dur]), [["C3", 0, 1440], ["G2", 1500, 1440]]);
+// A loop range plays all its bars back to back; out-of-range bars are clamped to the song.
+const plan34 = P.listenPlan(odeSong, { hand: "right", from: 3, to: 4 });
+assert.deepStrictEqual(plan34.events.map((e) => e.at), [0, 750, 1500, 2250, 3000, 4125, 4500]);
+assert.strictEqual(plan34.ms, 6000);
+assert.deepStrictEqual([P.listenPlan(odeSong, { hand: "right", from: 16, to: 99 }).from, P.listenPlan(odeSong, { hand: "right", from: 16, to: 99 }).to], [16, 16]);
+// A song with one hand plays it whatever hand is asked for; tempo follows the song.
+const fast = P.listenPlan({ ...P.normalizeSong({ title: "t", bpm: 120, beatsPerBar: 3, notes: [["C4", 0, 1], ["E4", 1, 2], ["G4", 3, 1]] }).song }, { hand: "left", from: 1, to: 1 });
+assert.deepStrictEqual(fast.events.map((e) => [e.note, e.at, e.dur]), [[60, 0, 450], [64, 500, 940]]);
+assert.strictEqual(fast.ms, 1500);
+// A note that runs past the end of the range is cut at the bar line.
+const tie = P.listenPlan(P.normalizeSong({ title: "t", notes: [["C4", 2, 4], ["D4", 4, 1]] }).song, { hand: "both", from: 1, to: 1 });
+assert.deepStrictEqual(tie.events.map((e) => [e.note, e.at, e.dur]), [[60, 1500, 1440]]);
+// What sounds when: the TV lights these keys as the keyboard plays them.
+assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 0)).map(Number), [48, 64]);
+assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 1200)).map(Number), [48, 62]);
+assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 1470)).map(Number), [], "gap before the repeated D");
+assert.deepStrictEqual(Object.keys(P.sounding(plan4both, 2950)).map(Number), [], "everything released before the bar ends");
+
+// MIDI messages: channel 1 note on / note off at t0 + at, offs before ons at the same time.
+const msgs = P.midiMessages([{ note: 62, at: 0, dur: 100 }, { note: 62, at: 100, dur: 50 }, { note: 300, at: 0, dur: 10 }], 1000, 70);
+assert.deepStrictEqual(msgs, [
+  { time: 1000, data: [0x90, 62, 70] },
+  { time: 1100, data: [0x80, 62, 0] },
+  { time: 1100, data: [0x90, 62, 70] },
+  { time: 1150, data: [0x80, 62, 0] },
+]);
+assert.strictEqual(P.midiMessages(plan4.events, 0).length, 6);
+assert.deepStrictEqual(P.midiMessages(plan4.events, 0)[0].data, [0x90, 64, 80], "default velocity 80");
+
+// Echo filter: the keyboard sending back what it was told to play is dropped once; the player's own keys are not.
+const echo = P.echoFilter(150);
+for (const m of P.midiMessages(plan4.events, 1000)) echo.expect(m.data[0] === 0x90, m.data[1], m.time);
+assert(echo.match(true, 64, 1004), "echoed E4 on");
+assert(!echo.match(true, 64, 1010), "only once");
+assert(!echo.match(true, 65, 1004), "another key is the player's");
+assert(!echo.match(true, 62, 1700), "D4 played early by the player is not the echo");
+assert(echo.match(false, 64, 2010), "echoed note off");
+assert(echo.match(true, 62, 2130));
+echo.clear(); assert.strictEqual(echo.size(), 0);
 
 console.log("ok");

@@ -13,6 +13,16 @@ for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "
 }
 assert(!S.isSwitchKey({ key: "m", metaKey: true }), "browser shortcuts are left alone");
 
+// Hear it first on the piano page: Rewind (checked to reach the page with adb, like Fast-Forward) or P.
+assert(S.isListenKey({ key: "MediaRewind", keyCode: 227 }));
+assert(S.isListenKey({ key: "Unidentified", keyCode: 227 }), "key code fallback");
+assert(S.isListenKey({ key: "p" }));
+assert(!S.isListenKey({ key: "MediaFastForward", keyCode: 228 }), "Fast-Forward still goes to the wall");
+assert(!S.isListenKey({ key: "p", ctrlKey: true }));
+for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " ", "MediaPlayPause", "l", "h", "c", "r", "m", "f"]) {
+  assert(!S.isListenKey({ key, keyCode: 0 }), key);
+}
+
 // Toggle goes to the other page.
 assert.strictEqual(S.togglePath("/"), "/piano");
 assert.strictEqual(S.togglePath("/piano"), "/");
