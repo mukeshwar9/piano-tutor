@@ -418,7 +418,7 @@ select.bar{min-width:0}
       setInterval(postDevice, 60000);
     }, function (err) {
       dot("dMidi", input === "mic" ? "" : "bad"); $("sMidi").textContent = "MIDI access refused: " + (err && err.message || err);
-      $("midiHelp").textContent = "Allow MIDI devices for this site in Chrome's site settings, then reload.";
+      $("midiHelp").textContent = input === "mic" ? "" : "Allow MIDI devices for this site in Chrome's site settings, then reload.";
     });
   }
 
@@ -448,7 +448,9 @@ select.bar{min-width:0}
       $("inHelp").textContent = "Notes come from this device's microphone: put it near the piano. Works with any piano or keyboard, no cable. Best for one note at a time.";
       micSecureHelp();
     }
-    if (access) scan(); else if (!navigator.requestMIDIAccess) startMidi();
+    if (access) scan();
+    else if (!navigator.requestMIDIAccess) startMidi();
+    else if (input === "mic") { dot("dMidi", ""); dot("dOut", ""); $("midiHelp").textContent = ""; }
     postDevice();
     micTip();
   }
