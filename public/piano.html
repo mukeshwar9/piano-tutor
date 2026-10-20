@@ -448,6 +448,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       if (!c && !saved && mode === "play" && !connect.asked) { connect.asked = true; startCalibration(); }
     });
     es.addEventListener("presence", function (m) { presence = JSON.parse(m.data); status(); });
+    // The songs folder changed: a new song joins the ◀ ▶ list, and the song on screen loads again
+    // when its file (or its import settings) changed.
+    es.addEventListener("songs", function (m) {
+      var d = JSON.parse(m.data);
+      songs = d.songs;
+      if (!rawSong || (mode === "play" && d.changed.indexOf(songId) >= 0)) loadSong(songId);
+    });
   }
 
   function status() {

@@ -39,6 +39,11 @@ select.bar{min-width:0}
 #kb .b{background:#10141c;height:74px;z-index:2}
 #kb .on{background:var(--blue)!important}
 #kb span{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:11px;color:#56627a}
+#files{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.file{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+.file b{font-size:16px}.file .err{color:var(--red)}
+.file select{min-width:0;padding:6px 10px;font-size:14px}.file button{padding:6px 10px;font-size:14px}
+#drop.over{outline:2px dashed var(--blue);outline-offset:4px}
 #log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut);white-space:pre;max-height:110px;overflow:hidden}
 </style>
 </head>
@@ -66,6 +71,16 @@ select.bar{min-width:0}
     <select id="songs" aria-label="Song"></select>
   </div>
   <div class="sub" id="swStatus" style="margin-top:8px">On the Fire TV remote, ⏪ or ⏩ also switches; ◀ ▶ pick the song while the piano is up.</div>
+</div>
+
+<div class="card" id="drop">
+  <div class="lbl">Song files</div>
+  <div class="btns" style="align-items:center">
+    <button id="bAdd" class="pri">Add a song file</button><input type="file" id="upload" accept=".mid,.midi,.mxl,.musicxml" hidden>
+    <span class="sub">MIDI (.mid) or MusicXML (.mxl, .musicxml), or drop it here</span>
+  </div>
+  <div class="sub" id="upStatus" style="margin-top:8px">Files dropped into the songs folder on the Mac show up by themselves within seconds.</div>
+  <div id="files"></div>
 </div>
 
 <div class="card">
@@ -152,12 +167,80 @@ select.bar{min-width:0}
 
   var songList = [];
   function loadSongs() {
-    fetch("/api/piano/songs").then(function (r) { return r.json(); }).then(function (d) {
-      songList = d.songs.filter(function (s) { return !s.error; });
-      $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + "</option>"; }).join("");
-      markSong();
-    }).catch(function () { setTimeout(loadSongs, 5000); });
+    fetch("/api/piano/songs").then(function (r) { return r.json(); }).then(function (d) { showSongs(d.songs); })
+      .catch(function () { setTimeout(loadSongs, 5000); });
   }
+  function showSongs(all) {
+    songList = all.filter(function (s) { return !s.error; });
+    $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + "</option>"; }).join("");
+    markSong();
+    renderFiles(all);
+  }
+
+  // ---------- song files ----------
+
+  var FORMATS = { json: "song JSON", midi: "MIDI", mxl: "MusicXML (.mxl)", musicxml: "MusicXML" };
+
+  // One row per file in the songs folder: what it is, any load error, and for MIDI and MusicXML
+  // how the hands were found, the hand split and a re-import button.
+  function renderFiles(all) {
+    $("files").innerHTML = all.map(function (s) {
+      var head = "<div><b>" + esc(s.title || s.id) + "</b> <span class=sub>" + esc(s.file || s.id) + (s.format ? " · " + FORMATS[s.format] : "") + "</span></div>";
+      if (s.error) return '<div class="file">' + head + '<div class="sub err">Does not load: ' + esc(s.error) + "</div>" + (s.format && s.format !== "json" ? controls(s) : "") + "</div>";
+      var im = s.import, facts = [s.noteCount + " notes", s.hands.length > 1 ? "both hands" : s.hands[0] + " hand only", s.bpm + " bpm", P.noteName(s.lowest) + "–" + P.noteName(s.highest) + (s.fits61 ? "" : " (some notes moved an octave)")];
+      if (im) {
+        facts.push(im.handsFrom === "split" ? "hands split at " + P.noteName(im.split) : "hands from " + (im.format === "midi" ? "tracks" : "staves"));
+        if (im.fingers) facts.push(im.fingers + " finger numbers");
+        if (im.dropped) facts.push(im.dropped + (im.dropped === 1 ? " ghost note" : " ghost notes") + " dropped");
+      }
+      return '<div class="file">' + head + '<div class="sub">' + esc(facts.join(" · ")) + "</div>" + (im ? controls(s) : "") + "</div>";
+    }).join("") || '<div class="sub">No songs yet.</div>';
+  }
+
+  function controls(s) {
+    var im = s.import || { hands: "auto", split: 60 }, opts = "";
+    for (var n = 48; n <= 72; n++) opts += '<option value="' + n + '"' + (n === im.split ? " selected" : "") + ">" + P.noteName(n) + "</option>";
+    return '<div class="btns" style="align-items:center" data-id="' + esc(s.id) + '">' +
+      '<select data-set="hands" aria-label="Hands"><option value="auto"' + (im.hands === "auto" ? " selected" : "") + ">Hands from tracks / staves</option>" +
+      '<option value="split"' + (im.hands === "split" ? " selected" : "") + ">Hands split by pitch</option></select>" +
+      '<span class="sub">split at</span><select data-set="split" aria-label="Split note">' + opts + "</select>" +
+      '<button data-reimport="1">Re-import</button></div>';
+  }
+
+  function importPost(body) {
+    $("upStatus").textContent = "Importing…";
+    fetch("/api/piano/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); })
+      .then(function (s) { $("upStatus").textContent = s.error ? "Does not load: " + s.error : "Imported " + (s.title || s.id) + ": " + s.noteCount + " notes."; loadSongs(); })
+      .catch(function () { $("upStatus").textContent = "Could not reach the server."; });
+  }
+
+  $("files").addEventListener("change", function (e) {
+    var row = e.target.parentNode, body = { id: row.dataset.id };
+    body[e.target.dataset.set] = e.target.dataset.set === "split" ? Number(e.target.value) : e.target.value;
+    importPost(body);
+  });
+  $("files").addEventListener("click", function (e) {
+    if (e.target.dataset.reimport) importPost({ id: e.target.parentNode.dataset.id });
+  });
+
+  function upload(file) {
+    if (!file) return;
+    if (!/\.(mid|midi|mxl|musicxml)$/i.test(file.name)) { $("upStatus").textContent = file.name + " is not a .mid, .mxl or .musicxml file."; return; }
+    $("upStatus").textContent = "Adding " + file.name + "…";
+    fetch("/api/piano/upload?name=" + encodeURIComponent(file.name), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        $("upStatus").textContent = s.error ? "Not added: " + s.error : "Added " + (s.title || s.file) + " (" + s.noteCount + " notes). Pick it from the song list.";
+        loadSongs();
+      })
+      .catch(function () { $("upStatus").textContent = "Could not reach the server."; });
+  }
+  $("bAdd").onclick = function () { $("upload").click(); };
+  $("upload").onchange = function () { upload($("upload").files[0]); $("upload").value = ""; };
+  $("drop").addEventListener("dragover", function (e) { e.preventDefault(); $("drop").className = "card over"; });
+  $("drop").addEventListener("dragleave", function () { $("drop").className = "card"; });
+  $("drop").addEventListener("drop", function (e) { e.preventDefault(); $("drop").className = "card"; upload(e.dataTransfer.files[0]); });
   function markSong() { if (tvState && tvState.songId) $("songs").value = tvState.songId; }
 
   function connect() {
@@ -170,6 +253,7 @@ select.bar{min-width:0}
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
+    es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
       var d = JSON.parse(m.data);
       if (d.stop) stopPlaying(); else play(d.events);
