@@ -1,0 +1,11 @@
+{
+  "name": "piano-tutor",
+  "version": "1.0.0",
+  "description": "An aligned piano tutor for a TV above a 61-key keyboard: falling notes, sheet music, wait and tempo modes, MIDI or microphone input.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js",
+    "test": "for f in test/*.test.js; do node \"$f\" || exit 1; done"
+  }
+}

@@ -411,12 +411,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     toastTimer = setTimeout(function () { el.className = ""; }, 1800);
   }
 
+  // The wall is another server's page: its address comes from the server's wallUrl ("" when none is set).
+  var wallUrl = "";
   var leaving = false;
   function toWall() {
     if (leaving) return;
+    if (!wallUrl) { toast("No wall page set (wallUrl in config.json)"); return; }
     leaving = true;
     toast("Switching to wall…");
-    setTimeout(function () { location.href = TVSwitch.PATHS.wall; }, 150);
+    setTimeout(function () { location.href = wallUrl; }, 150);
   }
 
   function restart() {
@@ -658,7 +661,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     });
     es.addEventListener("control", function (m) { control(JSON.parse(m.data)); });
     es.addEventListener("switch", function (m) {
-      try { if (TVSwitch.pathFor(JSON.parse(m.data).to, location.pathname)) toWall(); } catch (e) {}
+      try { if (TVSwitch.shouldMove(JSON.parse(m.data).to, "piano")) toWall(); } catch (e) {}
     });
     es.addEventListener("calibration", function (m) {
       var c = JSON.parse(m.data);
@@ -681,8 +684,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (presence) {
       if (presence.input === "mic") s.push(presence.device ? esc(presence.device.replace(/^Microphone: /, "Mic ")) + " <b class=ok>listening</b>" : "Mic <b class=bad>not listening</b>: press Start listening on the link page");
       else if (presence.device) s.push("Keyboard <b class=ok>" + esc(presence.device) + "</b>");
-      else if (presence.link) s.push("Keyboard <b class=bad>not found</b>: plug the Casio into the Mac");
-      else s.push("Keyboard <b class=bad>no link page</b>: open localhost:4410/piano/link in Chrome on the Mac");
+      else if (presence.link) s.push("Keyboard <b class=bad>not found</b>: plug the keyboard into the computer running the link page");
+      else s.push("Keyboard <b class=bad>no link page</b>: open localhost:" + (location.port || 4420) + "/piano/link in Chrome on the computer the keyboard is plugged into");
     }
     s.push(saved ? "Calibrated " + new Date(saved.savedAt).toLocaleDateString() : "Not calibrated: ▼ to calibrate");
     $("status").innerHTML = s.join("<br>");
@@ -1236,6 +1239,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   window.addEventListener("resize", resize);
   setTimeout(resize, 500); setTimeout(resize, 3000); // the viewport can settle after first paint on some WebViews
   status();
+  getJson("/api/config", function (err, c) { if (!err && c) wallUrl = TVSwitch.resolveUrl(c.wallUrl, location.hostname); });
   loadSong();
   connect();
   requestAnimationFrame(frame);

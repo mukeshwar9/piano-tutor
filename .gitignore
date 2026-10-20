@@ -1,2 +1,4 @@
 piano-calibration.json
 piano-history.json
+config.json
+*.tmp

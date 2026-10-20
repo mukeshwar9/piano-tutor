@@ -109,7 +109,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     <button id="bAdd" class="pri">Add a song file</button><input type="file" id="upload" accept=".mid,.midi,.mxl,.musicxml" hidden>
     <span class="sub">MIDI (.mid) or MusicXML (.mxl, .musicxml), or drop it here</span>
   </div>
-  <div class="sub" id="upStatus" style="margin-top:8px">Files dropped into the songs folder on the Mac show up by themselves within seconds.</div>
+  <div class="sub" id="upStatus" style="margin-top:8px">Files dropped into the songs folder on the server show up by themselves within seconds.</div>
   <div id="files"></div>
 </div>
 
@@ -421,7 +421,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   function startMidi() {
     if (!navigator.requestMIDIAccess) {
       dot("dMidi", input === "mic" ? "" : "bad"); $("sMidi").textContent = "Web MIDI is not available here";
-      $("midiHelp").textContent = input === "mic" ? "" : window.isSecureContext ? "Use Chrome, or choose Microphone above." : "Web MIDI needs localhost or HTTPS: open http://localhost:4410/piano/link in Chrome on the Mac, or choose Microphone above.";
+      $("midiHelp").textContent = input === "mic" ? "" : window.isSecureContext ? "Use Chrome, or choose Microphone above." : "Web MIDI needs localhost or HTTPS: open http://localhost:" + (location.port || 4420) + "/piano/link in Chrome on this computer, or choose Microphone above.";
       return;
     }
     dot("dOut", "bad"); $("sOut").textContent = "Sound out: needs Web MIDI";
@@ -471,7 +471,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   function micSecureHelp() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) return true;
     $("micHeard").textContent = window.isSecureContext ? "This browser has no microphone access." :
-      "The microphone only works over HTTPS: open this page through the Mac's HTTPS address, or by localhost on the Mac.";
+      "The microphone only works over HTTPS: open this page through the server's HTTPS address, or by localhost on the computer running the server.";
     $("bMic").disabled = true;
     return false;
   }

@@ -23,16 +23,27 @@ for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "
   assert(!S.isListenKey({ key, keyCode: 0 }), key);
 }
 
-// Toggle goes to the other page.
-assert.strictEqual(S.togglePath("/"), "/piano");
-assert.strictEqual(S.togglePath("/piano"), "/");
-assert.strictEqual(S.togglePath("/piano/link"), "/");
-
 // A remote request only moves a TV that is not already there.
-assert.strictEqual(S.pathFor("piano", "/"), "/piano");
-assert.strictEqual(S.pathFor("piano", "/piano"), "");
-assert.strictEqual(S.pathFor("wall", "/piano"), "/");
-assert.strictEqual(S.pathFor("wall", "/"), "");
-assert.strictEqual(S.pathFor("nonsense", "/"), "");
-assert.strictEqual(S.pathFor("toString", "/"), "", "inherited properties are not targets");
+assert(S.shouldMove("piano", "wall"));
+assert(!S.shouldMove("piano", "piano"));
+assert(S.shouldMove("wall", "piano"));
+assert(!S.shouldMove("wall", "wall"));
+assert(!S.shouldMove("nonsense", "wall"));
+assert(!S.shouldMove("toString", "wall"), "inherited properties are not targets");
+assert(S.isTarget("wall") && S.isTarget("piano") && !S.isTarget("toString") && !S.isTarget(undefined));
+
+// Configured addresses: {host} is the host the page came from, empty means none configured.
+assert.strictEqual(S.resolveUrl(S.DEFAULT_PIANO_URL, "tv-host"), "http://tv-host:4420/piano");
+assert.strictEqual(S.resolveUrl("http://{host}:4410/", "10.0.0.5"), "http://10.0.0.5:4410/");
+assert.strictEqual(S.resolveUrl("http://{host}:4410/", ""), "http://localhost:4410/");
+assert.strictEqual(S.resolveUrl("http://{host}:4410/", "::1"), "http://[::1]:4410/");
+assert.strictEqual(S.resolveUrl("https://wall.example/", "x"), "https://wall.example/");
+assert.strictEqual(S.resolveUrl("", "x"), "");
+assert.strictEqual(S.resolveUrl(undefined, "x"), "");
+
+// The server part of an address, for its API.
+assert.strictEqual(S.originOf("http://tv-host:4420/piano"), "http://tv-host:4420");
+assert.strictEqual(S.originOf("https://wall.example"), "https://wall.example");
+assert.strictEqual(S.originOf("/piano"), "");
+assert.strictEqual(S.originOf(""), "");
 console.log("switch tests passed");

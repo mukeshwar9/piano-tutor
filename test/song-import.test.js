@@ -80,7 +80,7 @@ assert.throws(() => I.importSong(read("two-track.mid"), "x.wav"), /not a \.mid/)
 
 // The songs folder: JSON and imported songs side by side, an imported file whose id is taken keeps
 // its extension, a broken file is listed with its error, and the sidecar settings apply.
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tvwall-import-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "piano-import-"));
 fs.copyFileSync(path.join(__dirname, "..", "songs", "ode-to-joy.json"), path.join(dir, "ode-to-joy.json"));
 fs.copyFileSync(path.join(FIX, "one-track.mid"), path.join(dir, "ode-to-joy.mid"));
 fs.copyFileSync(path.join(FIX, "two-staves.mxl"), path.join(dir, "two-staves.mxl"));

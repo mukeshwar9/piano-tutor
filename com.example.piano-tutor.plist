@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent template: replace __REPO__ with the repo's absolute path, __NODE__ with the node
+     binary (`command -v node`) and __HOME__ with your home folder, then see the README. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.example.piano-tutor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>-u</string>
+    <string>NODE_OPTIONS</string>
+    <string>__NODE__</string>
+    <string>__REPO__/server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/piano-tutor.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/piano-tutor.log</string>
+</dict>
+</plist>
