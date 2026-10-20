@@ -286,6 +286,7 @@
       streak: 0,
       bestStreak: 0,
       lastWrong: null,
+      wrongKeys: {},
       passes: 0,
       passWrong: 0,
       cleanPasses: 0,
@@ -332,13 +333,14 @@
       }
       if (otherDue(note, st)) return { result: "ignored", other: true };
       s.wrong++; s.passWrong++; s.streak = 0;
+      s.wrongKeys[note] = (s.wrongKeys[note] || 0) + 1;
       var want = s.waitingFor(), target = want[0];
       for (var i = 1; i < want.length; i++) if (Math.abs(want[i] - note) < Math.abs(target - note)) target = want[i];
       s.lastWrong = { note: note, target: target, hint: hint(note, target) };
       return { result: "wrong", hint: s.lastWrong.hint, target: target };
     };
     s.restart = function () {
-      s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.lastWrong = null;
+      s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.wrongKeys = {};
       s.passes = 0; s.passWrong = 0; s.cleanPasses = 0;
       s.done = steps.length === 0;
     };
@@ -420,6 +422,93 @@
     };
   }
 
+  // ---------- score history ----------
+
+  // A full-song play in Both hands at this accuracy (percent) or better counts a song as mastered.
+  var MASTER_ACCURACY = 95;
+  var PLAY_MODES = ["wait", "tempo"];
+
+  // The history entry for a finished session: song is the fitted song, extra carries what the page
+  // knows (mode, speed, durationMs). Accuracy is a percent with one decimal, wrongKeys maps a wrong
+  // key's name to how often it was struck.
+  function playRecord(song, session, extra) {
+    extra = extra || {};
+    var wrongKeys = {};
+    for (var k in session.wrongKeys) wrongKeys[noteName(Number(k))] = session.wrongKeys[k];
+    return {
+      song: song.id, title: song.title,
+      hand: session.hand, mode: extra.mode || "wait", speed: extra.speed || 1,
+      loop: session.loop ? { from: session.loop.from, to: session.loop.to } : null,
+      accuracy: Math.round(session.accuracy() * 1000) / 10, bestStreak: session.bestStreak,
+      correct: session.correct, wrong: session.wrong, wrongKeys: wrongKeys,
+      durationMs: Math.max(0, Math.round(extra.durationMs || 0)),
+    };
+  }
+
+  // A clean history entry from untrusted input, or null. The server adds `at` when it stores one.
+  function validPlay(r) {
+    if (!r || typeof r !== "object") return null;
+    var song = String(r.song || "").slice(0, 120);
+    var hand = r.hand === "right" || r.hand === "left" || r.hand === "both" ? r.hand : "";
+    var accuracy = Number(r.accuracy), streak = Number(r.bestStreak), correct = Number(r.correct), wrong = Number(r.wrong);
+    if (!song || !hand || !(accuracy >= 0 && accuracy <= 100) || !(streak >= 0) || !(correct >= 0) || !(wrong >= 0)) return null;
+    var loop = null;
+    if (r.loop) {
+      var from = Math.floor(Number(r.loop.from)), to = Math.floor(Number(r.loop.to));
+      if (!(from >= 1 && to >= from)) return null;
+      loop = { from: from, to: to };
+    }
+    var wrongKeys = {};
+    if (r.wrongKeys && typeof r.wrongKeys === "object") {
+      Object.keys(r.wrongKeys).slice(0, 128).forEach(function (n) {
+        var c = Math.floor(Number(r.wrongKeys[n]));
+        if (/^[A-G]#?-?\d$/.test(n) && c > 0) wrongKeys[n] = c;
+      });
+    }
+    return {
+      song: song, title: String(r.title || "").slice(0, 200),
+      hand: hand, mode: PLAY_MODES.indexOf(r.mode) >= 0 ? r.mode : "wait",
+      speed: Number(r.speed) > 0 && Number(r.speed) <= 4 ? Math.round(Number(r.speed) * 100) / 100 : 1,
+      loop: loop, accuracy: Math.round(accuracy * 10) / 10, bestStreak: Math.floor(streak),
+      correct: Math.floor(correct), wrong: Math.floor(wrong), wrongKeys: wrongKeys,
+      durationMs: Math.min(86400000, Math.max(0, Math.round(Number(r.durationMs) || 0))),
+      at: Number(r.at) > 0 ? Math.floor(Number(r.at)) : 0,
+    };
+  }
+
+  // Mastered play: the whole song (no loop) in Both hands (the effective hand: a one-hand song
+  // counts), at full speed, with at least MASTER_ACCURACY percent.
+  function isMasteredPlay(r) {
+    return !r.loop && r.hand === "both" && (r.speed || 1) >= 1 && r.accuracy >= MASTER_ACCURACY;
+  }
+
+  // Best scores per song id from the plays. Only whole-song plays count: a loop of one bar is not
+  // a score. bestAccuracy / bestStreak are over every hand mode; mastered needs a Both hands play.
+  function summarizeHistory(plays) {
+    var out = {};
+    (plays || []).forEach(function (r) {
+      var e = out[r.song] || (out[r.song] = { plays: 0, fullPlays: 0, bestAccuracy: null, bestStreak: 0, bestBothAccuracy: null, mastered: false, lastAt: 0 });
+      e.plays++;
+      e.lastAt = Math.max(e.lastAt, r.at || 0);
+      if (r.loop) return;
+      e.fullPlays++;
+      if (e.bestAccuracy == null || r.accuracy > e.bestAccuracy) e.bestAccuracy = r.accuracy;
+      if (r.bestStreak > e.bestStreak) e.bestStreak = r.bestStreak;
+      if (r.hand === "both" && (e.bestBothAccuracy == null || r.accuracy > e.bestBothAccuracy)) e.bestBothAccuracy = r.accuracy;
+      if (isMasteredPlay(r)) e.mastered = true;
+    });
+    return out;
+  }
+
+  // "1 min 05 s" / "42 s" for the results card.
+  function durationText(ms) {
+    var s = Math.round(ms / 1000), m = Math.floor(s / 60);
+    return m ? m + " min " + (s % 60 < 10 ? "0" : "") + (s % 60) + " s" : s + " s";
+  }
+
+  // "98%" / "97.5%": whole numbers lose the decimal.
+  function percentText(p) { return p == null ? "-" : (Math.round(p) === p ? String(p) : p.toFixed(1)) + "%"; }
+
   // Next hand mode when the remote cycles through them.
   var HANDS = ["right", "left", "both"];
   function nextHand(hand) { return HANDS[(HANDS.indexOf(hand) + 1) % HANDS.length]; }
@@ -437,6 +526,8 @@
 
   return {
     stepSong: stepSong,
+    MASTER_ACCURACY: MASTER_ACCURACY, playRecord: playRecord, validPlay: validPlay, isMasteredPlay: isMasteredPlay,
+    summarizeHistory: summarizeHistory, durationText: durationText, percentText: percentText,
     DEFAULT_LOW: DEFAULT_LOW, DEFAULT_HIGH: DEFAULT_HIGH, SCREEN_MM: SCREEN_MM,
     isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
     keyLayout: keyLayout, keyAt: keyAt, rulerEdges: rulerEdges, seatScale: seatScale,

@@ -84,6 +84,12 @@ select.bar{min-width:0}
 </div>
 
 <div class="card">
+  <div class="lbl">Scores</div>
+  <div class="btns"><button id="bProgress">Show progress on the TV</button></div>
+  <div class="sub" id="scoreStatus" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
   <div class="lbl">Practice</div>
   <div class="btns">
     <button id="bRight" data-hand="right">Right hand</button><button id="bLeft" data-hand="left">Left hand</button><button id="bBoth" data-hand="both">Both hands</button>
@@ -172,9 +178,20 @@ select.bar{min-width:0}
   }
   function showSongs(all) {
     songList = all.filter(function (s) { return !s.error; });
-    $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + "</option>"; }).join("");
+    $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + esc(scoreText(s.score)) + "</option>"; }).join("");
     markSong();
     renderFiles(all);
+    renderScores();
+  }
+
+  // " · best 98% · streak 41 ★" for the song picker; empty before the first whole-song play.
+  function scoreText(sc) {
+    return sc && sc.fullPlays ? " · best " + P.percentText(sc.bestAccuracy) + " · streak " + sc.bestStreak + (sc.mastered ? " ★" : "") : "";
+  }
+  function renderScores() {
+    var done = songList.filter(function (s) { return s.score && s.score.fullPlays; }), m = done.filter(function (s) { return s.score.mastered; });
+    $("scoreStatus").innerHTML = done.length ? "Scored " + done.length + " of " + songList.length + " songs · <b>" + m.length + " mastered</b>" + (m.length ? " (" + esc(m.map(function (s) { return s.title || s.id; }).join(", ")) + ")" : "") +
+      ". Mastered = the whole song in both hands at " + P.MASTER_ACCURACY + "% or better." : "No scores yet. Finish a song (not a loop) to get one. Mastered = the whole song in both hands at " + P.MASTER_ACCURACY + "% or better.";
   }
 
   // ---------- song files ----------
@@ -252,6 +269,7 @@ select.bar{min-width:0}
       dot("dTv", p.tv ? "ok" : "warn");
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
+    es.addEventListener("history", function () { loadSongs(); });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
@@ -297,6 +315,7 @@ select.bar{min-width:0}
       if (s.loop) { $("loopFrom").value = s.loop.from; $("loopTo").value = s.loop.to; }
     }
     $("bLoopOff").disabled = !s.loop;
+    $("bProgress").textContent = s.progress ? "Close progress on the TV" : "Show progress on the TV";
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
     $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
@@ -463,6 +482,7 @@ select.bar{min-width:0}
   $("loopTo").onchange = function () { if (Number($("loopTo").value) < Number($("loopFrom").value)) $("loopFrom").value = $("loopTo").value; };
   $("bLoop").onclick = function () { loopControl(Number($("loopFrom").value), Number($("loopTo").value)); };
   $("bLoopOff").onclick = function () { loopControl(0, 0); };
+  $("bProgress").onclick = function () { control("progress", 0, tvState && tvState.progress ? "off" : "on"); };
   $("bListen").onclick = function () { control("listen"); };
   $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {

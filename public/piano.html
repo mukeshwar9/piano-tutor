@@ -42,12 +42,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #panel p b{color:var(--txt)}
 #panel .step{font-size:.85rem;font-weight:700;color:var(--blue);letter-spacing:.12em;text-transform:uppercase;margin-bottom:.3rem}
 #panel .warn{color:var(--amber);margin-top:.4rem}
+#panel .gold{color:var(--amber)}
+#best{font-size:.95rem;color:var(--txt2)}#best b{color:var(--amber)}
+#progress{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(60rem,92%);max-height:calc(100% - 2.4rem);overflow:hidden;background:rgba(19,26,39,.97);border:.12rem solid var(--amber);border-radius:.8rem;padding:1rem 1.6rem;display:none}
+#progress.on{display:block}
+#progress h1{font-size:1.7rem;font-weight:800;margin-bottom:.2rem}
+#progress .sub{font-size:.95rem;color:var(--txt2);margin-bottom:.6rem}
+#progress table{width:100%;border-collapse:collapse;font-size:1.15rem;font-variant-numeric:tabular-nums}
+#progress th{font-size:.8rem;color:var(--mut);text-transform:uppercase;letter-spacing:.1em;text-align:right;padding:.2rem .6rem}
+#progress td{padding:.3rem .6rem;text-align:right;border-top:.06rem solid var(--line2)}
+#progress th:first-child,#progress td:first-child{text-align:left}
+#progress td.cur{color:var(--blue);font-weight:800}
+#progress .badge{color:var(--amber);font-weight:800}
+#progress .recent{margin-top:.8rem;font-size:.95rem;color:var(--txt2);line-height:1.5}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="left" class="side">
   <div id="title">Loading song…</div>
+  <div id="best"></div>
   <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
   <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
   <div id="status"></div>
@@ -63,6 +77,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <div id="toast"></div>
 <div id="listen"></div>
 <div id="panel"></div>
+<div id="progress"></div>
 <script src="/piano-core.js"></script>
 <script src="/switch.js"></script>
 <script>
@@ -102,6 +117,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var listen = null;        // Hear it first while it plays: { plan, t0, clock, paused, label }
   var listenReq = null, echoUntil = 0;
   var fingers = rememberedFingers();  // finger numbers on the falling notes and lit keys
+  var playMode = "wait", playSpeed = 1;  // what a finished play is recorded as (tempo mode sets both)
+  var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
+  var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
+  var progressOn = false, history = null;
 
   // ---------- sizing ----------
 
@@ -149,7 +168,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     cancelListen();
     loop = P.clampLoop(song, loop);
     session = P.createSession(song, { hand: hand, loop: loop });
-    clock = session.range.start - LEAD_IN; paused = false; held = {};
+    clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null;
+    showBest();
     var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
     $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
     lastSide = "";
@@ -269,7 +289,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         try { localStorage.setItem("pianoSong", songId); } catch (e) {}
         rawSong = s; song = null; session = null; held = {}; loop = null;
         fitSong();
-        if (id) toast(s.title);
+        var sc = scoreOf(songId);
+        if (id) toast(s.title + (sc && sc.fullPlays ? " · best " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " ★" : "") : ""));
       });
     });
   }
@@ -299,7 +320,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function restart() {
     if (!session) return;
     cancelListen();
-    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {};
+    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null;
     panel();
     report();
   }
@@ -313,7 +334,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (mode === "cal1") { work.low = n; calNote(); return; }
     if (mode === "cal2") { work.high = n; calNote(); return; }
     if (mode === "cal3" || !session) return;
+    if (progressOn) return;
     if (session.done) { restart(); held[n] = true; }
+    if (!playStart) playStart = Date.now();
     var r = session.press(n);
     if (r.result === "wrong") {
       // A wrong key stays red while it is held down, then fades.
@@ -328,8 +351,75 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
       clock = session.range.start - LEAD_IN / 2;
     }
-    if (r.result === "done") panel();
+    if (r.result === "done") { panel(); saveResult(); }
     report();
+  }
+
+  // ---------- score history ----------
+
+  function scoreOf(id) {
+    for (var i = 0; i < songs.length; i++) if (songs[i].id === id) return songs[i].score || null;
+    return null;
+  }
+
+  // Best score of the song on the left, under its title.
+  function showBest() {
+    var sc = song && scoreOf(songId), el = $("best");
+    el.innerHTML = sc && sc.fullPlays ? "Best " + P.percentText(sc.bestAccuracy) + " · streak " + sc.bestStreak + (sc.mastered ? ' · <b>★ mastered</b>' : "") : "";
+  }
+
+  // A finished play goes to the server, which keeps the history; the reply says whether it was a new best.
+  function saveResult() {
+    var rec = P.playRecord(song, session, { mode: playMode, speed: playSpeed, durationMs: Date.now() - (playStart || Date.now()) });
+    rec.song = songId;
+    var s = session;
+    postJson("/api/piano/history", rec, function (err, r) {
+      if (err || !r) { lastResult = { error: err || "no reply" }; }
+      else {
+        lastResult = r;
+        for (var i = 0; i < songs.length; i++) if (songs[i].id === rec.song) songs[i].score = r.score;
+        history = null;
+      }
+      if (session === s && s.done) { panel(); showBest(); }
+    });
+  }
+
+  function toggleProgress(on) {
+    progressOn = on == null ? !progressOn : on;
+    if (!progressOn) { $("progress").className = ""; return; }
+    renderProgress();
+    getJson("/api/piano/history?limit=8", function (err, h) {
+      if (err) return;
+      history = h;
+      if (progressOn) renderProgress();
+    });
+  }
+
+  function dateText(at) {
+    var d = new Date(at);
+    return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+
+  function renderProgress() {
+    var scores = history ? history.scores : {}, rows = "";
+    songs.forEach(function (sg) {
+      if (sg.error) return;
+      var sc = scores[sg.id] || sg.score;
+      rows += "<tr><td class=" + (sg.id === songId ? "cur" : "") + ">" + esc(sg.title || sg.id) + "</td>" +
+        "<td>" + (sc && sc.fullPlays ? P.percentText(sc.bestAccuracy) : "-") + "</td>" +
+        "<td>" + (sc && sc.fullPlays ? sc.bestStreak : "-") + "</td>" +
+        "<td>" + (sc ? sc.plays : 0) + "</td>" +
+        "<td>" + (sc && sc.mastered ? '<span class=badge>★ Mastered</span>' : sc && sc.bestBothAccuracy != null ? "Both hands " + P.percentText(sc.bestBothAccuracy) : sc && sc.fullPlays ? "Try both hands" : "") + "</td></tr>";
+    });
+    var recent = "";
+    if (history && history.plays.length) {
+      recent = "<div class=recent><b>Recent</b><br>" + history.plays.slice(0, 5).map(function (p) {
+        return esc(p.title || p.song) + " · " + p.hand + " hand" + (p.hand === "both" ? "s" : "") + " · " + p.mode + (p.loop ? " · " + esc(barsText(p.loop)) : "") + " · " + P.percentText(p.accuracy) + " · " + dateText(p.at);
+      }).join("<br>") + "</div>";
+    }
+    $("progress").innerHTML = "<h1>Progress</h1><div class=sub>Mastered: the whole song in both hands at " + P.MASTER_ACCURACY + "% or better. <b>OK</b> or <b>Back</b> closes.</div>" +
+      "<table><tr><th>Song</th><th>Best</th><th>Streak</th><th>Plays</th><th></th></tr>" + rows + "</table>" + recent;
+    $("progress").className = "on";
   }
 
   function noteOff(n) {
@@ -363,7 +453,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   }
 
   function ok() {
-    if (mode === "cal1") { mode = "cal2"; calWarn = ""; panel(); }
+    if (progressOn) toggleProgress(false);
+    else if (mode === "cal1") { mode = "cal2"; calWarn = ""; panel(); }
     else if (mode === "cal2") { mode = "cal3"; calWarn = ""; panel(); }
     else if (mode === "cal3") save();
     else if (session && session.done) restart();
@@ -372,7 +463,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   }
 
   function back() {
-    if (mode === "cal3") { mode = "cal2"; panel(); }
+    if (progressOn) toggleProgress(false);
+    else if (mode === "cal3") { mode = "cal2"; panel(); }
     else if (mode === "cal2") { mode = "cal1"; panel(); }
     else if (mode === "cal1") { mode = "play"; setLayout(cal); panel(); }
     report();
@@ -397,6 +489,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "loop") setLoop(c.from ? { from: c.from, to: c.to || c.from } : null);
     else if (c.cmd === "listen") toggleListen();
     else if (c.cmd === "fingers") setFingers(c.id);
+    else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
   }
 
   // Play-pause on the Fire TV remote; L on a keyboard.
@@ -409,7 +502,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song (or move the loop while
   // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
-  // (Hear it first), ⏩ (or M) switches to the wall and F shows or hides the finger numbers.
+  // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers and S opens
+  // the progress screen (also the link page's Progress button; OK or Back closes it).
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     if (TVSwitch.isListenKey(e)) { e.preventDefault(); if (!e.repeat) toggleListen(); }
@@ -419,10 +513,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (k === "ArrowRight") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(1) : stepSong(1); } else nudge(step); e.preventDefault(); }
     else if ((k === "ArrowUp" || k === "h" || k === "H") && mode === "play") { if (!e.repeat) setHand(P.nextHand(hand)); e.preventDefault(); }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
-    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play") { back(); e.preventDefault(); } }
+    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn) { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
+    else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
   });
 
   // ---------- relay ----------
@@ -487,7 +582,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      listening: listen ? listen.label : "", fingers: fingers,
+      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
       correct: session ? session.correct : 0, wrong: session ? session.wrong : 0,
@@ -509,13 +604,29 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       "<p>Range: <b>" + P.noteName(work.low) + "–" + P.noteName(work.high) + "</b> (" + (work.high - work.low + 1) + " keys) · line at " + Math.round(work.right) + " px</p>";
     else if (mode === "cal3") h = "<div class=step>Calibrate · step 3 of 3</div><h1>Play a few keys anywhere</h1>" +
       "<p>Each key lights a beam straight above itself. If the beams line up, press <b>OK</b> to save. <b>Back</b> redoes the edges.</p>";
-    else if (session && session.done && loop) h = "<div class=step>Loop finished</div><h1>" + esc(barsText(loop).replace(/^b/, "B")) + " clean " + session.cleanNeeded + " times in a row!</h1>" +
-      "<p>" + session.passes + " passes · accuracy <b>" + Math.round(session.accuracy() * 100) + "%</b>. <b>OK</b> loops again, <b>⏯</b> stops the loop, <b>▶</b> moves to the next bar.</p>";
-    else if (session && session.done) h = "<div class=step>Finished</div><h1>Well played!</h1>" +
-      "<p>Accuracy <b>" + Math.round(session.accuracy() * 100) + "%</b> · best streak <b>" + session.bestStreak + "</b>. Press <b>OK</b> or play any key to go again.</p>";
+    else if (session && session.done) h = resultCard();
     if (calWarn) h += "<p class=warn>" + esc(calWarn) + "</p>";
     p.innerHTML = h; p.className = h ? "on" : "";
     status();
+  }
+
+  // The card shown when a song or loop is finished: this play's numbers next to the best so far.
+  function resultCard() {
+    var acc = Math.round(session.accuracy() * 1000) / 10, r = lastResult, p = r && r.play, prev = r && r.previous, sc = r && r.score;
+    var head = loop ? "Loop finished" : "Finished", title = loop ? esc(barsText(loop).replace(/^b/, "B")) + " clean " + session.cleanNeeded + " times in a row!" : "Well played!";
+    var lines = ["Accuracy <b>" + P.percentText(acc) + "</b> · best streak <b>" + session.bestStreak + "</b> · wrong keys <b>" + session.wrong + "</b>" +
+      (p ? " · time <b>" + P.durationText(p.durationMs) + "</b>" : "") + (loop ? " · " + session.passes + " passes" : "")];
+    var missed = Object.keys(session.wrongKeys).sort(function (a, b) { return session.wrongKeys[b] - session.wrongKeys[a] || a - b; }).slice(0, 3);
+    if (missed.length) lines.push("Most missed: " + missed.map(function (n) { return "<b>" + P.noteName(Number(n)) + "</b> ×" + session.wrongKeys[n]; }).join(", "));
+    if (r && r.error) lines.push('<span class=warn>Not saved: ' + esc(r.error) + "</span>");
+    else if (p && loop) lines.push("Loop plays are saved but do not count towards best scores.");
+    else if (p && sc) {
+      var best = prev && prev.bestAccuracy != null ? prev.bestAccuracy : null;
+      lines.push((best == null ? '<span class=gold>First score for this song.</span> ' : acc > best ? '<span class=gold>New best accuracy!</span> Before: ' + P.percentText(best) + ". " : "Best " + P.percentText(sc.bestAccuracy) + ". ") +
+        (sc.mastered && !(prev && prev.mastered) ? '<span class=gold>★ Mastered!</span>' : sc.mastered ? "★ Mastered." : p.hand !== "both" ? "Play both hands at " + P.MASTER_ACCURACY + "% to master it." : acc < P.MASTER_ACCURACY ? P.MASTER_ACCURACY + "% in both hands masters it." : ""));
+    }
+    lines.push(loop ? "<b>OK</b> loops again, <b>⏯</b> stops the loop, <b>▶</b> moves to the next bar." : "Press <b>OK</b> or play any key to go again, <b>S</b> for all scores.");
+    return "<div class=step>" + head + "</div><h1>" + title + "</h1><p>" + lines.join("</p><p>") + "</p>";
   }
 
   // ---------- drawing ----------

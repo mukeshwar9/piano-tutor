@@ -149,4 +149,30 @@ function writeCalibration(file, input) {
   return cal;
 }
 
-module.exports = { loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration };
+// Score history: a JSON list of finished plays, newest last, kept next to the calibration (not in
+// git). Only the newest MAX_PLAYS are kept so the file stays small.
+const MAX_PLAYS = 2000;
+
+function readHistory(file) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    return (Array.isArray(raw.plays) ? raw.plays : []).map(core.validPlay).filter(Boolean);
+  } catch { return []; }
+}
+
+// Validates, stamps the date and appends one play; returns the stored play. Written to a temp file
+// and renamed like the calibration.
+function addPlay(file, input, now = Date.now()) {
+  const play = core.validPlay({ ...input, at: now });
+  if (!play) throw new Error("invalid play");
+  const plays = readHistory(file).concat(play).slice(-MAX_PLAYS);
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ plays }, null, 1) + "\n");
+  fs.renameSync(tmp, file);
+  return play;
+}
+
+// Best scores keyed by song id (see core.summarizeHistory).
+function historySummary(file) { return core.summarizeHistory(readHistory(file)); }
+
+module.exports = { core, loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration, readHistory, addPlay, historySummary, MAX_PLAYS };
