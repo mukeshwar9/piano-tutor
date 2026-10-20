@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">
+<title>Piano</title>
+<style>
+:root{
+  --bg:#0b0f17;--card:#131a27;--line:#1c2433;--line2:#2a3446;
+  --txt:#e8edf5;--txt2:#b7c2d6;--mut:#8b97ab;--dim:#5d687c;
+  --blue:#4da3ff;--green:#3ddc84;--amber:#ffb020;--red:#ff5252;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+/* 1rem is set from the viewport height in JS (20px at 1080 tall), so the text scales with the TV. */
+#c{position:absolute;left:0;top:0;width:100%;height:100%}
+.side{position:absolute;top:1.2rem;display:flex;flex-direction:column;gap:.9rem;font-variant-numeric:tabular-nums;line-height:1.25}
+.side .lbl{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em}
+.side .val{font-size:1.6rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side .sub{font-size:.95rem;color:var(--txt2)}
+#left{text-align:left}
+#right{text-align:right}
+#title{font-size:1.5rem;font-weight:800;line-height:1.15}
+#status{font-size:.9rem;color:var(--txt2);line-height:1.4}
+#status b.ok{color:var(--green)}#status b.bad{color:var(--amber)}
+#hint{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(42,18,22,.95);border:.12rem solid var(--red);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
+#hint.on{opacity:1}
+#panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
+#panel.on{display:block}
+#panel h1{font-size:1.7rem;font-weight:800;margin-bottom:.4rem}
+#panel p{font-size:1.05rem;color:var(--txt2);line-height:1.45}
+#panel p b{color:var(--txt)}
+#panel .step{font-size:.85rem;font-weight:700;color:var(--blue);letter-spacing:.12em;text-transform:uppercase;margin-bottom:.3rem}
+#panel .warn{color:var(--amber);margin-top:.4rem}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="left" class="side">
+  <div id="title">Loading song…</div>
+  <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
+  <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
+  <div id="status"></div>
+</div>
+<div id="right" class="side">
+  <div><div class="lbl">Accuracy</div><div class="val" id="acc">-</div></div>
+  <div><div class="lbl">Streak</div><div class="val" id="streak">0</div></div>
+  <div><div class="lbl">Waiting for</div><div class="val" id="want">-</div></div>
+</div>
+<div id="hint"></div>
+<div id="panel"></div>
+<script src="/piano-core.js"></script>
+<script>
+(function () {
+  "use strict";
+  var P = window.PianoCore;
+  var $ = function (id) { return document.getElementById(id); };
+  var canvas = $("c"), ctx = canvas.getContext("2d");
+  var W = 0, H = 0, DPR = 1;
+
+  var LEAD_IN = 4;          // beats of falling notes before the first one reaches the hit line
+  var LOOKAHEAD = 4.5;      // beats visible above the hit line
+  var KEY_H = 0.16;         // on-screen keys, share of the screen height, on the very bottom edge
+  var FLASH_MS = 700, HINT_MS = 2600;
+
+  var saved = null;         // calibration from the server (null until one is saved)
+  var cal = null;           // calibration in this screen's device pixels
+  var work = null;          // calibration being edited in the calibration flow
+  var layout = null;
+  var mode = "play";        // play | cal1 | cal2 | cal3
+  var calWarn = "";
+
+  var rawSong = null, song = null, session = null, clock = -LEAD_IN, paused = false;
+  var held = {};            // note -> true while the key is down
+  var flash = {};           // note -> { color, until }
+  var hintUntil = 0;
+  var online = false, presence = null;
+
+  // ---------- sizing ----------
+
+  function resize() {
+    DPR = window.devicePixelRatio || 1;
+    W = Math.round(window.innerWidth * DPR); H = Math.round(window.innerHeight * DPR);
+    canvas.width = W; canvas.height = H;
+    document.documentElement.style.fontSize = Math.max(8, window.innerHeight / 54) + "px";
+    applyCalibration();
+    beacon();
+  }
+
+  function applyCalibration() {
+    cal = saved ? P.scaleCalibration(saved, W) : P.defaultCalibration(W);
+    if (work && work.screenPx !== W) { var m = work.mode; work = P.scaleCalibration(work, W); work.mode = m; }
+    if (mode === "play") setLayout(cal);
+    else setLayout(work);
+    fitSong();
+  }
+
+  function setLayout(c) {
+    layout = P.keyLayout(c);
+    // Song info sits in the side margins outside the strip.
+    var l = c.left / DPR, r = (W - c.right) / DPR, pad = window.innerHeight / 40;
+    var ls = $("left").style, rs = $("right").style;
+    ls.left = pad + "px"; ls.width = Math.max(120, l - 2 * pad) + "px";
+    rs.right = pad + "px"; rs.width = Math.max(120, r - 2 * pad) + "px";
+  }
+
+  // ---------- song ----------
+
+  function fitSong() {
+    // A new keyboard range can move notes by an octave, so the song starts over when it changes.
+    if (!rawSong || !cal) return;
+    if (song && song.fitLow === cal.low && song.fitHigh === cal.high) return;
+    song = P.fitSong(rawSong, cal.low, cal.high);
+    song.fitLow = cal.low; song.fitHigh = cal.high;
+    session = P.createSession(song); clock = -LEAD_IN;
+    $("title").textContent = song.title;
+    $("mode").textContent = "Wait mode · " + song.hand + " hand · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
+    report();
+  }
+
+  function loadSong() {
+    var want = /[?&]song=([^&]+)/.exec(location.search);
+    getJson("/api/piano/songs", function (err, list) {
+      if (err) { $("title").textContent = "Songs unavailable"; return setTimeout(loadSong, 10000); }
+      var ok = list.songs.filter(function (s) { return !s.error; });
+      var pick = (want && ok.filter(function (s) { return s.id === decodeURIComponent(want[1]); })[0]) || ok[0];
+      if (!pick) { $("title").textContent = "No songs in songs/"; return; }
+      getJson("/api/piano/songs/" + encodeURIComponent(pick.id), function (err2, s) {
+        if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(loadSong, 10000); }
+        rawSong = s; song = null; session = null;
+        fitSong();
+      });
+    });
+  }
+
+  function restart() {
+    if (!session) return;
+    session.restart(); clock = -LEAD_IN; paused = false; held = {};
+    panel();
+    report();
+  }
+
+  // ---------- input ----------
+
+  function noteOn(n) {
+    held[n] = true;
+    if (mode === "cal1") { work.low = n; calNote(); return; }
+    if (mode === "cal2") { work.high = n; calNote(); return; }
+    if (mode === "cal3" || !session) return;
+    if (session.done) { restart(); held[n] = true; }
+    var r = session.press(n);
+    if (r.result === "wrong") {
+      // A wrong key stays red while it is held down, then fades.
+      flash[n] = { color: "#ff5252", until: Infinity };
+      $("hint").textContent = r.hint; $("hint").className = "on"; hintUntil = Date.now() + HINT_MS;
+    } else if (r.result !== "ignored") {
+      flash[n] = { color: "#3ddc84", until: Date.now() + FLASH_MS };
+      $("hint").className = ""; hintUntil = 0;
+    }
+    if (r.result === "done") panel();
+    report();
+  }
+
+  function noteOff(n) {
+    delete held[n];
+    if (flash[n] && flash[n].until === Infinity) flash[n].until = Date.now() + FLASH_MS / 2;
+  }
+
+  function calNote() {
+    // Keep the range sane while someone is still finding the end keys.
+    if (work.high - work.low < 12) { if (mode === "cal1") work.high = work.low + 60; else work.low = work.high - 60; }
+    calWarn = "";
+    if (mode === "cal1" && work.low % 12 !== 0) calWarn = "Lowest key read as " + P.noteName(work.low) + ", not a C: switch off Transpose on the Casio, then press it again.";
+    if (mode === "cal2" && work.high % 12 !== 0) calWarn = "Highest key read as " + P.noteName(work.high) + ", not a C: switch off Transpose on the Casio, then press it again.";
+    if (work.low < 0) work.low = 0;
+    if (work.high > 127) work.high = 127;
+    setLayout(work); panel();
+  }
+
+  function startCalibration() {
+    work = { low: cal.low, high: cal.high, left: cal.left, right: cal.right, screenPx: W, mode: "seat" };
+    mode = "cal1"; calWarn = ""; held = {};
+    setLayout(work); panel(); report();
+  }
+
+  function nudge(px) {
+    if (mode === "cal1") work.left = Math.min(work.right - 100, work.left + px);
+    else if (mode === "cal2") work.right = Math.max(work.left + 100, work.right + px);
+    else return;
+    setLayout(work); panel();
+  }
+
+  function ok() {
+    if (mode === "cal1") { mode = "cal2"; calWarn = ""; panel(); }
+    else if (mode === "cal2") { mode = "cal3"; calWarn = ""; panel(); }
+    else if (mode === "cal3") save();
+    else if (session && session.done) restart();
+    else paused = !paused;
+    report();
+  }
+
+  function back() {
+    if (mode === "cal3") { mode = "cal2"; panel(); }
+    else if (mode === "cal2") { mode = "cal1"; panel(); }
+    else if (mode === "cal1") { mode = "play"; setLayout(cal); panel(); }
+    report();
+  }
+
+  function save() {
+    postJson("/api/piano/calibration", work, function (err, c) {
+      if (err) { calWarn = "Could not save: " + err; panel(); return; }
+      saved = c; mode = "play"; panel(); applyCalibration(); report();
+    });
+  }
+
+  function control(c) {
+    if (c.cmd === "calibrate") startCalibration();
+    else if (c.cmd === "nudge") nudge(c.px || 0);
+    else if (c.cmd === "ok") ok();
+    else if (c.cmd === "back") back();
+    else if (c.cmd === "restart") { if (mode !== "play") { mode = "play"; setLayout(cal); } restart(); }
+    else if (c.cmd === "pause" && mode === "play") { paused = !paused; report(); }
+  }
+
+  // Remote: ◀ ▶ move the edge line 1 device pixel (10 when held or with Shift), OK confirms,
+  // Back steps back. In play, OK pauses (or replays a finished song) and ▼ or C calibrates.
+  document.addEventListener("keydown", function (e) {
+    var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
+    if (k === "ArrowLeft") { nudge(-step); e.preventDefault(); }
+    else if (k === "ArrowRight") { nudge(step); e.preventDefault(); }
+    else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
+    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play") { back(); e.preventDefault(); } }
+    else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
+    else if ((k === "r" || k === "R") && mode === "play") restart();
+  });
+
+  // ---------- relay ----------
+
+  function connect() {
+    var es = new EventSource("/api/piano/events?role=tv");
+    es.onopen = function () { online = true; status(); };
+    es.onerror = function () { online = false; status(); };
+    es.addEventListener("midi", function (m) {
+      var d = JSON.parse(m.data);
+      for (var i = 0; i < d.events.length; i++) {
+        var ev = d.events[i];
+        if (ev.on && ev.velocity > 0) noteOn(ev.note); else noteOff(ev.note);
+      }
+    });
+    es.addEventListener("control", function (m) { control(JSON.parse(m.data)); });
+    es.addEventListener("calibration", function (m) {
+      var c = JSON.parse(m.data);
+      if (c && (!saved || c.savedAt !== saved.savedAt)) { saved = c; if (mode === "play") applyCalibration(); }
+      if (!c && !saved && mode === "play" && !connect.asked) { connect.asked = true; startCalibration(); }
+    });
+    es.addEventListener("presence", function (m) { presence = JSON.parse(m.data); status(); });
+  }
+
+  function status() {
+    var s = [];
+    s.push(online ? "Server <b class=ok>connected</b>" : "Server <b class=bad>reconnecting…</b>");
+    if (presence) {
+      if (presence.device) s.push("Keyboard <b class=ok>" + esc(presence.device) + "</b>");
+      else if (presence.link) s.push("Keyboard <b class=bad>not found</b>: plug the Casio into the Mac");
+      else s.push("Keyboard <b class=bad>no link page</b>: open localhost:4410/piano/link in Chrome on the Mac");
+    }
+    s.push(saved ? "Calibrated " + new Date(saved.savedAt).toLocaleDateString() : "Not calibrated: ▼ to calibrate");
+    $("status").innerHTML = s.join("<br>");
+  }
+
+  var reportTimer = null;
+  // Mirror the play state to the link page (throttled).
+  function report() {
+    if (reportTimer) return;
+    reportTimer = setTimeout(function () {
+      reportTimer = null;
+      var st = snapshot();
+      postJson("/api/piano/state", st, function () {});
+    }, 150);
+  }
+
+  function snapshot() {
+    return {
+      mode: mode, paused: paused,
+      song: song ? song.title : "", step: session ? session.index : 0, steps: session ? session.steps.length : 0,
+      done: session ? session.done : false,
+      waitingFor: session ? session.waitingFor().map(P.noteName) : [],
+      accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
+      correct: session ? session.correct : 0, wrong: session ? session.wrong : 0,
+      hint: session && session.lastWrong ? session.lastWrong.hint : "",
+      calibration: mode === "play" ? cal : work, screenPx: W,
+    };
+  }
+  window.pianoState = snapshot;
+
+  // ---------- panel text ----------
+
+  function panel() {
+    var p = $("panel"), h = "";
+    if (mode === "cal1") h = "<div class=step>Calibrate · step 1 of 3</div><h1>Press your lowest key</h1>" +
+      "<p>Then use <b>◀ ▶</b> until the <b>left blue line</b> sits on the left edge of that key, as seen from the stool. <b>OK</b> when it lines up.</p>" +
+      "<p>Lowest key: <b>" + P.noteName(work.low) + "</b> · line at " + Math.round(work.left) + " px</p>";
+    else if (mode === "cal2") h = "<div class=step>Calibrate · step 2 of 3</div><h1>Press your highest key</h1>" +
+      "<p>Then use <b>◀ ▶</b> until the <b>right blue line</b> sits on the right edge of that key. <b>OK</b> when it lines up.</p>" +
+      "<p>Range: <b>" + P.noteName(work.low) + "–" + P.noteName(work.high) + "</b> (" + (work.high - work.low + 1) + " keys) · line at " + Math.round(work.right) + " px</p>";
+    else if (mode === "cal3") h = "<div class=step>Calibrate · step 3 of 3</div><h1>Play a few keys anywhere</h1>" +
+      "<p>Each key lights a beam straight above itself. If the beams line up, press <b>OK</b> to save. <b>Back</b> redoes the edges.</p>";
+    else if (session && session.done) h = "<div class=step>Finished</div><h1>Well played!</h1>" +
+      "<p>Accuracy <b>" + Math.round(session.accuracy() * 100) + "%</b> · best streak <b>" + session.bestStreak + "</b>. Press <b>OK</b> or play any key to go again.</p>";
+    if (calWarn) h += "<p class=warn>" + esc(calWarn) + "</p>";
+    p.innerHTML = h; p.className = h ? "on" : "";
+    status();
+  }
+
+  // ---------- drawing ----------
+
+  function frame(t) {
+    var now = Date.now(), dt = Math.min(100, t - (frame.last || t));
+    frame.last = t;
+    if (session && mode === "play" && !paused) {
+      // A finished song keeps falling away instead of freezing on screen.
+      var st = session.current();
+      clock = P.advanceClock(clock, dt, song.bpm, st ? st.start : null);
+    }
+    if (hintUntil && now > hintUntil) { $("hint").className = ""; hintUntil = 0; }
+    draw(now);
+    side();
+    requestAnimationFrame(frame);
+  }
+
+  function draw(now) {
+    var c = mode === "play" ? cal : work;
+    var keyTop = Math.round(H * (1 - KEY_H)), hitY = keyTop - Math.round(H * 0.006);
+    var ppb = hitY / LOOKAHEAD;
+    ctx.fillStyle = "#0b0f17"; ctx.fillRect(0, 0, W, H);
+
+    // Lanes: faint lines at the white-key boundaries inside the strip.
+    ctx.fillStyle = "#121a28";
+    ctx.fillRect(c.left, 0, c.right - c.left, keyTop);
+    ctx.fillStyle = "#1a2333";
+    for (var n = layout.low; n <= layout.high; n++) {
+      var k = layout.keys[n];
+      if (!k.black && (n % 12 === 0 || n % 12 === 5)) ctx.fillRect(Math.round(k.x0), 0, Math.max(1, Math.round(DPR)), keyTop);
+    }
+
+    var want = {}, current = session && mode === "play" ? session.current() : null;
+    if (current) current.notes.forEach(function (x) { want[x] = session.hit[x] ? "hit" : "want"; });
+
+    // Falling notes, clipped at the hit line.
+    if (song && session && mode === "play") {
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, hitY); ctx.clip();
+      var curStart = current ? current.start : Infinity, gap = Math.max(2, Math.round(DPR * 2));
+      for (var i = 0; i < song.notes.length; i++) {
+        var nt = song.notes[i], key = layout.keys[nt.note];
+        if (!key) continue;
+        var bottom = hitY - (nt.start - clock) * ppb, top = bottom - nt.length * ppb;
+        if (bottom < 0 || top > hitY) continue;
+        var isCur = Math.abs(nt.start - curStart) < 1e-6;
+        var col = nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : "#ffb020") : (key.black ? "#2f7fd6" : "#4da3ff");
+        roundRect(key.x0 + gap, top + gap, key.x1 - key.x0 - 2 * gap, bottom - top - 2 * gap, Math.min(10 * DPR, (key.x1 - key.x0) / 3));
+        ctx.fillStyle = col; ctx.fill();
+        if (nt.shifted) { ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
+      }
+      ctx.restore();
+    }
+
+    // Check step: every held key lights a beam straight above itself.
+    if (mode === "cal3") {
+      for (var b in held) {
+        var bk = layout.keys[b];
+        if (!bk) continue;
+        var g = ctx.createLinearGradient(0, 0, 0, keyTop);
+        g.addColorStop(0, "rgba(77,163,255,0)"); g.addColorStop(1, "rgba(77,163,255,.85)");
+        ctx.fillStyle = g; ctx.fillRect(bk.x0, 0, bk.x1 - bk.x0, keyTop);
+      }
+    }
+
+    // Hit line.
+    ctx.fillStyle = "#2a3446"; ctx.fillRect(c.left, hitY, c.right - c.left, Math.max(2, Math.round(2 * DPR)));
+
+    // Keys: whites first, blacks on top at their real offsets.
+    var blackH = Math.round((H - keyTop) * 0.62);
+    for (var pass = 0; pass < 2; pass++) {
+      for (var m = layout.low; m <= layout.high; m++) {
+        var kk = layout.keys[m];
+        if (kk.black !== (pass === 1)) continue;
+        var fl = flash[m] && flash[m].until > now ? flash[m].color : null;
+        var fill = kk.black ? "#10141c" : "#e9edf3";
+        if (want[m] === "want") fill = "#ffb020";
+        if (held[m]) fill = mode === "play" ? (want[m] === "hit" || (fl === "#3ddc84") ? "#3ddc84" : fl || (kk.black ? "#3a4a66" : "#9fb3d1")) : "#4da3ff";
+        else if (fl) fill = fl;
+        var x0 = Math.round(kk.x0), x1 = Math.round(kk.x1);
+        ctx.fillStyle = fill;
+        if (kk.black) ctx.fillRect(x0, keyTop, x1 - x0, blackH);
+        else {
+          ctx.fillRect(x0 + 1, keyTop, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop);
+        }
+      }
+    }
+
+    // Calibration edge lines and the range labels.
+    if (mode === "cal1" || mode === "cal2") {
+      edge(work.left, mode === "cal1"); edge(work.right, mode === "cal2");
+    }
+  }
+
+  function edge(x, active) {
+    ctx.fillStyle = active ? "#4da3ff" : "rgba(77,163,255,.35)";
+    var w = active ? Math.max(2, Math.round(DPR * 1.5)) : Math.max(1, Math.round(DPR));
+    ctx.fillRect(Math.round(x) - Math.floor(w / 2), 0, w, H);
+  }
+
+  function roundRect(x, y, w, h, r) {
+    if (w <= 0 || h <= 0) { ctx.beginPath(); return; }
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+
+  var lastSide = "";
+  function side() {
+    if (!session) return;
+    var bar = Math.max(1, Math.floor(Math.max(0, clock) / song.beatsPerBar) + 1);
+    var bars = Math.ceil(song.notes.reduce(function (a, x) { return Math.max(a, x.start + x.length); }, 0) / song.beatsPerBar);
+    var wantNames = session.waitingFor().map(P.noteName).join(" ");
+    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused].join("|");
+    if (key === lastSide) return;
+    lastSide = key;
+    $("bar").textContent = session.done ? "Finished" : Math.min(bar, bars) + " of " + bars + (paused ? " · paused" : "");
+    $("acc").textContent = session.correct + session.wrong ? Math.round(session.accuracy() * 100) + "%" : "-";
+    $("streak").textContent = session.streak + (session.bestStreak > session.streak ? " (best " + session.bestStreak + ")" : "");
+    $("want").textContent = session.done ? "OK to replay" : wantNames || "-";
+    $("want").style.color = session.done ? "#3ddc84" : "#ffb020";
+  }
+
+  // ---------- helpers ----------
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]; }); }
+
+  function getJson(url, cb) {
+    var x = new XMLHttpRequest();
+    x.open("GET", url); x.timeout = 15000;
+    x.onload = function () { try { x.status === 200 ? cb(null, JSON.parse(x.responseText)) : cb("HTTP " + x.status); } catch (e) { cb(String(e)); } };
+    x.onerror = x.ontimeout = function () { cb("network"); };
+    x.send();
+  }
+
+  function postJson(url, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open("POST", url); x.timeout = 15000; x.setRequestHeader("Content-Type", "application/json");
+    x.onload = function () {
+      var d = null;
+      try { d = JSON.parse(x.responseText); } catch (e) {}
+      x.status === 200 ? cb(null, d) : cb((d && d.error) || "HTTP " + x.status);
+    };
+    x.onerror = x.ontimeout = function () { cb("network"); };
+    x.send(JSON.stringify(body));
+  }
+
+  // Report the real viewport to the server log, like the wall page, so TV sizing can be diagnosed.
+  function beacon() {
+    try {
+      new Image().src = "/api/debug?page=piano&w=" + window.innerWidth + "&h=" + window.innerHeight + "&dpr=" + window.devicePixelRatio +
+        "&sw=" + (screen.width || 0) + "&sh=" + (screen.height || 0) + "&ua=" + encodeURIComponent(navigator.userAgent) + "&t=" + Date.now();
+    } catch (e) {}
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+  setTimeout(resize, 500); setTimeout(resize, 3000); // the viewport can settle after first paint on some WebViews
+  status();
+  loadSong();
+  connect();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

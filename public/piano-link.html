@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piano link</title>
+<style>
+:root{
+  --bg:#0b0f17;--card:#131a27;--line:#1c2433;--line2:#2a3446;
+  --txt:#e8edf5;--txt2:#b7c2d6;--mut:#8b97ab;--dim:#5d687c;
+  --blue:#4da3ff;--green:#3ddc84;--amber:#ffb020;--red:#ff5252;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{max-width:760px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px;font-variant-numeric:tabular-nums}
+h1{font-size:22px;font-weight:800}
+h1 small{font-size:14px;font-weight:500;color:var(--mut);margin-left:8px}
+.card{background:var(--card);border-radius:12px;padding:14px 16px}
+.lbl{font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
+.row{display:flex;align-items:center;gap:10px;font-size:16px;line-height:1.5}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--dim);flex:none}
+.dot.ok{background:var(--green)}.dot.warn{background:var(--amber)}.dot.bad{background:var(--red)}
+.sub{font-size:14px;color:var(--txt2);line-height:1.45}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:#1c2638;border:1px solid var(--line2);border-radius:10px;padding:10px 14px;min-width:52px;cursor:pointer}
+button:active{background:#2a3a55}
+button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
+#play{font-size:15px;color:var(--txt2);line-height:1.6}
+#play b{color:var(--txt)}
+#play .want{color:var(--amber);font-weight:800}
+#kb{position:relative;height:120px;user-select:none;touch-action:none;margin-top:4px}
+#kb div{position:absolute;top:0;border:1px solid #6b7890;border-radius:0 0 5px 5px}
+#kb .w{background:#e9edf3;height:120px;z-index:1}
+#kb .b{background:#10141c;height:74px;z-index:2}
+#kb .on{background:var(--blue)!important}
+#kb span{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:11px;color:#56627a}
+#log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut);white-space:pre;max-height:110px;overflow:hidden}
+</style>
+</head>
+<body>
+<h1>Piano link <small>keyboard → TV</small></h1>
+
+<div class="card">
+  <div class="lbl">Connection</div>
+  <div class="row"><span class="dot" id="dMidi"></span><span id="sMidi">Starting Web MIDI…</span></div>
+  <div class="row"><span class="dot" id="dSrv"></span><span id="sSrv">Connecting to the server…</span></div>
+  <div class="row"><span class="dot" id="dTv"></span><span id="sTv">TV: unknown</span></div>
+  <div class="sub" id="midiHelp"></div>
+</div>
+
+<div class="card">
+  <div class="lbl">On the TV</div>
+  <div id="play">No TV state yet.</div>
+</div>
+
+<div class="card">
+  <div class="lbl">Calibration and control</div>
+  <div class="btns">
+    <button id="bCal" class="pri">Calibrate</button>
+    <button data-px="-10">◀◀ 10</button><button data-px="-1">◀ 1</button>
+    <button data-px="1">1 ▶</button><button data-px="10">10 ▶▶</button>
+    <button id="bOk" class="pri">OK</button><button id="bBack">Back</button>
+    <button id="bRestart">Restart song</button><button id="bPause">Pause</button>
+  </div>
+  <div class="sub" style="margin-top:8px">The arrows move the edge line the TV is asking about, in TV pixels (one pixel is about 0.75 mm on the 65-inch TV).</div>
+</div>
+
+<div class="card">
+  <div class="lbl">Test input (no keyboard needed)</div>
+  <div class="btns">
+    <button id="bNext">Play the next note</button><button id="bWrong">Play a wrong note</button>
+  </div>
+  <div id="kb"></div>
+  <div class="sub">Click the keys, or type A W S E D F T G Y H U J K (C4–C5); Z and X shift the octave.</div>
+</div>
+
+<div class="card"><div class="lbl">Recent notes</div><div id="log"></div></div>
+
+<script src="/piano-core.js"></script>
+<script>
+(function () {
+  "use strict";
+  var P = window.PianoCore;
+  var $ = function (id) { return document.getElementById(id); };
+  var tvState = null, logLines = [];
+
+  function dot(id, cls) { $(id).className = "dot " + (cls || ""); }
+
+  // ---------- relay ----------
+
+  // Every note goes to the server right away; the server pushes it to the TV over SSE.
+  function send(events, source) {
+    fetch("/api/piano/input", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ events: events }) })
+      .catch(function () { dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable: notes are not reaching the TV"; });
+    events.forEach(function (e) {
+      logLines.unshift(new Date().toLocaleTimeString() + "  " + (e.on ? "on " : "off") + "  " + P.noteName(e.note) + "  vel " + e.velocity + "  " + source);
+    });
+    logLines = logLines.slice(0, 8);
+    $("log").textContent = logLines.join("\n");
+  }
+
+  function control(cmd, px) {
+    fetch("/api/piano/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd: cmd, px: px || 0 }) });
+  }
+
+  function connect() {
+    var es = new EventSource("/api/piano/events?role=link");
+    es.onopen = function () { dot("dSrv", "ok"); $("sSrv").textContent = "Server connected"; };
+    es.onerror = function () { dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable, retrying…"; };
+    es.addEventListener("presence", function (m) {
+      var p = JSON.parse(m.data);
+      dot("dTv", p.tv ? "ok" : "warn");
+      $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : "No TV page open: open /piano on the TV";
+    });
+    es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
+  }
+
+  function renderState() {
+    var s = tvState;
+    if (!s) return;
+    var mode = { play: s.done ? "finished" : s.paused ? "paused" : "playing", cal1: "calibrating: lowest key", cal2: "calibrating: highest key", cal3: "calibrating: check" }[s.mode] || s.mode;
+    $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
+      "<br>Waiting for <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · streak " + s.streak +
+      (s.hint ? "<br>Last hint: " + esc(s.hint) : "") +
+      (s.calibration ? "<br>Strip " + Math.round(s.calibration.left) + "–" + Math.round(s.calibration.right) + " px of " + s.screenPx + ", keys " + P.noteName(s.calibration.low) + "–" + P.noteName(s.calibration.high) : "");
+  }
+
+  // ---------- Web MIDI ----------
+
+  var access = null, device = "";
+
+  function onMidi(e) {
+    var d = e.data, type = d[0] & 0xf0;
+    if (type === 0x90 && d[2] > 0) send([{ on: true, note: d[1], velocity: d[2] }], "midi");
+    else if (type === 0x80 || type === 0x90) send([{ on: false, note: d[1], velocity: 0 }], "midi");
+  }
+
+  function scan() {
+    var names = [];
+    access.inputs.forEach(function (input) { input.onmidimessage = onMidi; names.push(input.name || "MIDI input"); });
+    var name = names.join(", ");
+    if (name !== device) { device = name; postDevice(); }
+    if (names.length) { dot("dMidi", "ok"); $("sMidi").textContent = "Keyboard: " + name; $("midiHelp").textContent = ""; }
+    else {
+      dot("dMidi", "warn"); $("sMidi").textContent = "No MIDI keyboard found";
+      $("midiHelp").textContent = "Plug the Casio's USB port into this computer and switch it on. It shows up here by itself.";
+    }
+  }
+
+  function postDevice() {
+    fetch("/api/piano/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: device }) }).catch(function () {});
+  }
+
+  function startMidi() {
+    if (!navigator.requestMIDIAccess) {
+      dot("dMidi", "bad"); $("sMidi").textContent = "Web MIDI is not available here";
+      $("midiHelp").textContent = window.isSecureContext ? "Use Chrome." : "Web MIDI needs localhost or HTTPS: open http://localhost:4410/piano/link in Chrome on the Mac.";
+      return;
+    }
+    navigator.requestMIDIAccess({ sysex: false }).then(function (a) {
+      access = a; a.onstatechange = scan; scan();
+      // Keep reporting the device so the TV still knows after a server restart.
+      setInterval(postDevice, 60000);
+    }, function (err) {
+      dot("dMidi", "bad"); $("sMidi").textContent = "MIDI access refused: " + (err && err.message || err);
+      $("midiHelp").textContent = "Allow MIDI devices for this site in Chrome's site settings, then reload.";
+    });
+  }
+
+  // ---------- test input ----------
+
+  var LOW = 48, HIGH = 84, octave = 0;
+  function buildKeyboard() {
+    var kb = $("kb"), whites = P.whiteCount(LOW, HIGH), u0 = P.keyUnits(LOW)[0];
+    for (var n = LOW; n <= HIGH; n++) {
+      var u = P.keyUnits(n), el = document.createElement("div");
+      el.className = P.isBlack(n) ? "b" : "w";
+      el.style.left = ((u[0] - u0) / whites * 100) + "%";
+      el.style.width = ((u[1] - u[0]) / whites * 100) + "%";
+      el.dataset.note = n;
+      if (n % 12 === 0) el.innerHTML = "<span>" + P.noteName(n) + "</span>";
+      kb.appendChild(el);
+    }
+    kb.addEventListener("pointerdown", function (e) {
+      var n = Number(e.target.dataset && e.target.dataset.note || e.target.parentNode.dataset.note);
+      if (!n) return;
+      press(n);
+      var up = function () { release(n); window.removeEventListener("pointerup", up); };
+      window.addEventListener("pointerup", up);
+    });
+  }
+
+  function keyEl(n) { return document.querySelector('#kb [data-note="' + n + '"]'); }
+  function press(n) { var el = keyEl(n); if (el) el.classList.add("on"); send([{ on: true, note: n, velocity: 90 }], "test"); }
+  function release(n) { var el = keyEl(n); if (el) el.classList.remove("on"); send([{ on: false, note: n, velocity: 0 }], "test"); }
+  function tap(notes) {
+    notes.forEach(press);
+    setTimeout(function () { notes.forEach(release); }, 180);
+  }
+
+  var MAP = "awsedftgyhujk", down = {};
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key.toLowerCase();
+    if (k === "z") { octave = Math.max(-2, octave - 1); return; }
+    if (k === "x") { octave = Math.min(2, octave + 1); return; }
+    var i = MAP.indexOf(k);
+    if (i < 0 || e.repeat) return;
+    var n = 60 + i + 12 * octave;
+    down[k] = n; press(n);
+  });
+  document.addEventListener("keyup", function (e) {
+    var k = e.key.toLowerCase();
+    if (down[k] != null) { release(down[k]); delete down[k]; }
+  });
+
+  $("bNext").onclick = function () {
+    if (!tvState || !tvState.waitingFor.length) return;
+    tap(tvState.waitingFor.map(P.parseNote));
+  };
+  $("bWrong").onclick = function () {
+    var want = tvState && tvState.waitingFor.length ? P.parseNote(tvState.waitingFor[0]) : 60;
+    tap([want + (want % 12 === 11 ? -1 : 1)]);
+  };
+  $("bCal").onclick = function () { control("calibrate"); };
+  $("bOk").onclick = function () { control("ok"); };
+  $("bBack").onclick = function () { control("back"); };
+  $("bRestart").onclick = function () { control("restart"); };
+  $("bPause").onclick = function () { control("pause"); };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {
+    b.onclick = function () { control("nudge", Number(b.dataset.px)); };
+  });
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]; }); }
+
+  // Keep the screen awake while this page relays notes (a phone on the music rest would sleep).
+  function wake() { if (navigator.wakeLock && document.visibilityState === "visible") navigator.wakeLock.request("screen").catch(function () {}); }
+  document.addEventListener("visibilitychange", wake);
+
+  buildKeyboard();
+  connect();
+  startMidi();
+  wake();
+})();
+</script>
+</body>
+</html>
