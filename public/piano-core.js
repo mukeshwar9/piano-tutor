@@ -117,19 +117,30 @@
 
   // ---------- songs ----------
 
-  // Song file: { title, notes: [[name, startBeat, lengthBeats], ...], bpm, beatsPerBar, ... }.
+  // "right" / "left" from a song or note hand field ("R", "L", "rh", "left hand", ...), or "" when unknown.
+  function handName(h) {
+    var c = String(h == null ? "" : h).trim().toLowerCase().charAt(0);
+    return c === "r" ? "right" : c === "l" ? "left" : "";
+  }
+
+  // Song file: { title, hand, notes: [[name, startBeat, lengthBeats, hand?], ...], bpm, beatsPerBar, ... }.
+  // A note without its own hand ("R" / "L") belongs to the song's hand, which defaults to right.
   // Returns { song } or { error }. Notes are sorted and given MIDI numbers.
   function normalizeSong(raw, id) {
     if (!raw || typeof raw !== "object") return { error: "not an object" };
     if (!raw.title) return { error: "missing title" };
     if (!Array.isArray(raw.notes) || !raw.notes.length) return { error: "no notes" };
-    var notes = [];
+    var songHand = raw.hand == null || raw.hand === "" ? "right" : handName(raw.hand);
+    if (!songHand) return { error: "bad hand: " + JSON.stringify(raw.hand) };
+    var notes = [], present = {};
     for (var i = 0; i < raw.notes.length; i++) {
-      var r = raw.notes[i], n = Array.isArray(r) ? r : [r && r.note, r && r.start, r && r.length];
+      var r = raw.notes[i], n = Array.isArray(r) ? r : [r && r.note, r && r.start, r && r.length, r && r.hand];
       var midi = typeof n[0] === "number" ? n[0] : parseNote(n[0]);
       var start = Number(n[1]), len = Number(n[2]);
-      if (!(midi >= 0 && midi <= 127) || !isFinite(start) || start < 0 || !(len > 0)) return { error: "bad note #" + (i + 1) + ": " + JSON.stringify(r) };
-      notes.push({ note: midi, start: start, length: len });
+      var hand = n[3] == null || n[3] === "" ? songHand : handName(n[3]);
+      if (!(midi >= 0 && midi <= 127) || !isFinite(start) || start < 0 || !(len > 0) || !hand) return { error: "bad note #" + (i + 1) + ": " + JSON.stringify(r) };
+      notes.push({ note: midi, start: start, length: len, hand: hand });
+      present[hand] = true;
     }
     notes.sort(function (a, b) { return a.start - b.start || a.note - b.note; });
     return {
@@ -139,7 +150,8 @@
         composer: String(raw.composer || ""),
         source: String(raw.source || ""),
         license: String(raw.license || ""),
-        hand: String(raw.hand || "right"),
+        hand: songHand,
+        hands: ["right", "left"].filter(function (h) { return present[h]; }),
         bpm: Number(raw.bpm) > 0 ? Number(raw.bpm) : 80,
         beatsPerBar: Number(raw.beatsPerBar) > 0 ? Number(raw.beatsPerBar) : 4,
         notes: notes,
@@ -155,7 +167,7 @@
       while (n < low) n += 12;
       while (n > high) n -= 12;
       if (n !== x.note) shifted++;
-      return { note: n, start: x.start, length: x.length, shifted: n !== x.note };
+      return { note: n, start: x.start, length: x.length, hand: x.hand || "right", shifted: n !== x.note };
     });
     var out = {};
     for (var k in song) out[k] = song[k];
@@ -164,16 +176,41 @@
     return out;
   }
 
-  // Group notes that start together into steps: wait mode waits for each step in turn.
+  // Group notes that start together into steps: wait mode waits for each step in turn. Each step
+  // records which hand plays each of its notes.
   function buildSteps(notes) {
     var steps = [];
     for (var i = 0; i < notes.length; i++) {
-      var last = steps[steps.length - 1];
-      if (last && Math.abs(last.start - notes[i].start) < 1e-6) {
-        if (last.notes.indexOf(notes[i].note) < 0) last.notes.push(notes[i].note);
-      } else steps.push({ start: notes[i].start, notes: [notes[i].note] });
+      var last = steps[steps.length - 1], n = notes[i];
+      if (!last || Math.abs(last.start - n.start) >= 1e-6) steps.push(last = { start: n.start, notes: [], hands: {} });
+      if (last.notes.indexOf(n.note) < 0) { last.notes.push(n.note); last.hands[n.note] = n.hand || "right"; }
     }
     return steps;
+  }
+
+  // Bars in a song (a bar is beatsPerBar beats, bar 1 starts on beat 0).
+  function barCount(song) {
+    var end = 0;
+    for (var i = 0; i < song.notes.length; i++) end = Math.max(end, song.notes[i].start + song.notes[i].length);
+    return Math.max(1, Math.ceil(end / song.beatsPerBar - 1e-6));
+  }
+
+  function barOf(song, beat) { return Math.floor(Math.max(0, beat) / song.beatsPerBar + 1e-6) + 1; }
+
+  // The hand mode that actually applies to a song: asking for a hand the song does not have
+  // (left hand on a right-hand-only song) plays the whole song instead.
+  function playHand(song, hand) {
+    var hands = song.hands || ["right"];
+    return (hand === "right" || hand === "left") && hands.indexOf(hand) >= 0 && hands.length > 1 ? hand : "both";
+  }
+
+  // A practice loop clamped to the song: { from, to } in bars, or null for no loop.
+  function clampLoop(song, loop) {
+    if (!loop) return null;
+    var bars = barCount(song), from = Math.floor(Number(loop.from)), to = Math.floor(Number(loop.to != null ? loop.to : loop.from));
+    if (!(from >= 1)) return null;
+    from = Math.min(from, bars); to = Math.max(from, Math.min(to >= 1 ? to : from, bars));
+    return { from: from, to: to };
   }
 
   // ---------- wait mode ----------
@@ -203,12 +240,33 @@
     return head + ", " + (words[whites] || whites) + " white key" + (whites === 1 ? "" : "s") + " to the " + dir;
   }
 
+  // Clean passes in a row that finish a practice loop.
+  var LOOP_CLEAN = 3;
+
   // Wait-mode session: the song only advances when every note of the current step has been
   // struck since that step came up. Repeated notes must be struck again.
-  function createSession(song) {
-    var steps = buildSteps(song.notes);
+  // opts.hand: "right" | "left" | "both" (default): in one-hand mode the other hand's notes are not
+  // required, and striking one of them while it is due is ignored instead of counted wrong.
+  // opts.loop: { from, to } bars: only those bars are played, over and over; a pass with no wrong
+  // key is clean, and LOOP_CLEAN clean passes in a row finish the loop.
+  function createSession(song, opts) {
+    opts = opts || {};
+    var hand = song.beatsPerBar ? playHand(song, opts.hand) : "both";
+    var loop = song.beatsPerBar ? clampLoop(song, opts.loop) : null;
+    var lo = loop ? (loop.from - 1) * song.beatsPerBar : -Infinity, hi = loop ? loop.to * song.beatsPerBar : Infinity;
+    var mine = [], other = [];
+    for (var i = 0; i < song.notes.length; i++) {
+      var n = song.notes[i];
+      if (hand === "both" || (n.hand || "right") === hand) { if (n.start >= lo - 1e-6 && n.start < hi - 1e-6) mine.push(n); }
+      else other.push(n);
+    }
+    var steps = buildSteps(mine);
     var s = {
       steps: steps,
+      hand: hand,
+      loop: loop,
+      // Beats the session covers, so the page can start its clock just before the first step.
+      range: { start: steps.length ? steps[0].start : 0, end: loop ? hi : Infinity },
       index: 0,
       hit: {},
       correct: 0,
@@ -216,6 +274,10 @@
       streak: 0,
       bestStreak: 0,
       lastWrong: null,
+      passes: 0,
+      passWrong: 0,
+      cleanPasses: 0,
+      cleanNeeded: LOOP_CLEAN,
       done: steps.length === 0,
     };
     s.current = function () { return s.done ? null : steps[s.index]; };
@@ -227,7 +289,16 @@
       var total = s.correct + s.wrong;
       return total ? s.correct / total : 1;
     };
-    // Returns { result: "correct" | "advance" | "wrong" | "done" | "ignored", hint?, step? }.
+    // The other hand's note sounding at the current step (it may be played along without penalty).
+    function otherDue(note, st) {
+      for (var i = 0; i < other.length; i++) {
+        var o = other[i];
+        if (o.note === note && o.start <= st.start + 1e-6 && o.start + o.length > st.start + 1e-6) return true;
+      }
+      return false;
+    }
+    // Returns { result: "correct" | "advance" | "pass" | "wrong" | "done" | "ignored", hint?, step?, clean? }.
+    // "pass" ends one time through a loop and starts the next; clean says whether it had no wrong key.
     s.press = function (note) {
       if (s.done) return { result: "ignored" };
       var st = steps[s.index];
@@ -239,10 +310,16 @@
         s.lastWrong = null;
         if (s.waitingFor().length) return { result: "correct" };
         s.index++; s.hit = {};
-        if (s.index >= steps.length) { s.done = true; return { result: "done" }; }
-        return { result: "advance", step: s.index };
+        if (s.index < steps.length) return { result: "advance", step: s.index };
+        if (!loop) { s.done = true; return { result: "done" }; }
+        var clean = s.passWrong === 0;
+        s.passes++; s.passWrong = 0; s.index = 0;
+        s.cleanPasses = clean ? s.cleanPasses + 1 : 0;
+        if (s.cleanPasses >= LOOP_CLEAN) { s.done = true; return { result: "done", clean: true }; }
+        return { result: "pass", clean: clean };
       }
-      s.wrong++; s.streak = 0;
+      if (otherDue(note, st)) return { result: "ignored", other: true };
+      s.wrong++; s.passWrong++; s.streak = 0;
       var want = s.waitingFor(), target = want[0];
       for (var i = 1; i < want.length; i++) if (Math.abs(want[i] - note) < Math.abs(target - note)) target = want[i];
       s.lastWrong = { note: note, target: target, hint: hint(note, target) };
@@ -250,10 +327,15 @@
     };
     s.restart = function () {
       s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.lastWrong = null;
+      s.passes = 0; s.passWrong = 0; s.cleanPasses = 0;
       s.done = steps.length === 0;
     };
     return s;
   }
+
+  // Next hand mode when the remote cycles through them.
+  var HANDS = ["right", "left", "both"];
+  function nextHand(hand) { return HANDS[(HANDS.indexOf(hand) + 1) % HANDS.length]; }
 
   // The song to pick when the remote steps dir (+1 / -1) from current: songs with errors are skipped
   // and the list wraps. Returns "" when nothing is playable.
@@ -272,7 +354,8 @@
     isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
     keyLayout: keyLayout, keyAt: keyAt, rulerEdges: rulerEdges, seatScale: seatScale,
     scaleCalibration: scaleCalibration, defaultCalibration: defaultCalibration, validCalibration: validCalibration,
-    normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,
+    handName: handName, normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,
+    barCount: barCount, barOf: barOf, playHand: playHand, clampLoop: clampLoop, nextHand: nextHand, LOOP_CLEAN: LOOP_CLEAN,
     advanceClock: advanceClock, hint: hint, createSession: createSession,
   };
 });

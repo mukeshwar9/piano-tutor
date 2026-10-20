@@ -9,6 +9,7 @@
   --bg:#0b0f17;--card:#131a27;--line:#1c2433;--line2:#2a3446;
   --txt:#e8edf5;--txt2:#b7c2d6;--mut:#8b97ab;--dim:#5d687c;
   --blue:#4da3ff;--green:#3ddc84;--amber:#ffb020;--red:#ff5252;
+  --rh:#8cc6ff;--lh:#ff9ff0;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
@@ -27,6 +28,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #hint.on{opacity:1}
 #toast{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
 #toast.on{opacity:1}
+#want span.right{color:var(--rh)}#want span.left{color:var(--lh)}
+#loopBox{display:none}#loopBox.on{display:block}
+#loopVal{font-size:2.2rem;letter-spacing:.15em;color:var(--green)}
 #keys{font-size:.8rem;color:var(--txt2);opacity:.65;line-height:1.5}
 #panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
 #panel.on{display:block}
@@ -44,12 +48,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
   <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
   <div id="status"></div>
-  <div id="keys">◀ ▶ song · ⏪⏩ wall</div>
+  <div id="keys">◀ ▶ song · ▲ hand · ⏯ loop · ⏪⏩ wall</div>
 </div>
 <div id="right" class="side">
   <div><div class="lbl">Accuracy</div><div class="val" id="acc">-</div></div>
   <div><div class="lbl">Streak</div><div class="val" id="streak">0</div></div>
   <div><div class="lbl">Waiting for</div><div class="val" id="want">-</div></div>
+  <div id="loopBox"><div class="lbl" id="loopLbl">Loop</div><div class="val" id="loopVal"></div><div class="sub" id="loopSub"></div></div>
 </div>
 <div id="hint"></div>
 <div id="toast"></div>
@@ -68,6 +73,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var LOOKAHEAD = 4.5;      // beats visible above the hit line
   var KEY_H = 0.16;         // on-screen keys, share of the screen height, on the very bottom edge
   var FLASH_MS = 700, HINT_MS = 2600;
+  // Per-hand colours: falling notes (white / black key lanes) and the keys a step is waiting for.
+  var HAND = {
+    right: { white: "#4da3ff", black: "#2f7fd6", want: "#8cc6ff" },
+    left: { white: "#e26ad0", black: "#b9479f", want: "#ff9ff0" },
+  };
+  var HAND_NAMES = { right: "Right hand", left: "Left hand", both: "Both hands" };
 
   var saved = null;         // calibration from the server (null until one is saved)
   var cal = null;           // calibration in this screen's device pixels
@@ -77,6 +88,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var calWarn = "";
 
   var songs = [], songId = "", rawSong = null, song = null, session = null, clock = -LEAD_IN, paused = false;
+  var hand = rememberedHand();  // right | left | both, as chosen; the session may fall back to both
+  var loop = null;          // { from, to } bars while practising a loop
   var held = {};            // note -> true while the key is down
   var flash = {};           // note -> { color, until }
   var hintUntil = 0;
@@ -118,10 +131,63 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (song && song.fitLow === cal.low && song.fitHigh === cal.high) return;
     song = P.fitSong(rawSong, cal.low, cal.high);
     song.fitLow = cal.low; song.fitHigh = cal.high;
-    session = P.createSession(song); clock = -LEAD_IN;
     $("title").textContent = song.title;
-    $("mode").textContent = "Wait mode · " + song.hand + " hand · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
+    newSession();
+  }
+
+  // A fresh wait-mode session for the current song, hand and loop, with the clock in the lead-in.
+  function newSession() {
+    if (!song) return;
+    loop = P.clampLoop(song, loop);
+    session = P.createSession(song, { hand: hand, loop: loop });
+    clock = session.range.start - LEAD_IN; paused = false; held = {};
+    var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
+    $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
+    lastSide = "";
+    panel();
     report();
+  }
+
+  function rememberedHand() {
+    var h = "";
+    try { h = localStorage.getItem("pianoHand") || ""; } catch (e) {}
+    return HAND_NAMES[h] ? h : "right";
+  }
+
+  // Remote ▲ and the link page: right, left or both hands.
+  function setHand(h) {
+    if (mode !== "play" || !HAND_NAMES[h]) return;
+    hand = h;
+    try { localStorage.setItem("pianoHand", hand); } catch (e) {}
+    newSession();
+    if (song && session.hand !== hand) toast(song.title + " has the " + song.hands[0] + " hand only");
+    else toast(HAND_NAMES[hand]);
+  }
+
+  // Practice loop over bars from..to; null stops it. The song starts again either way.
+  function setLoop(l) {
+    if (mode !== "play" || !song) return;
+    loop = l && l.from ? l : null;
+    newSession();
+    toast(loop ? "Loop " + barsText(loop) + " · " + session.cleanNeeded + " clean in a row" : "Loop off");
+  }
+
+  function barsText(l) { return l.from === l.to ? "bar " + l.from : "bars " + l.from + "–" + l.to; }
+
+  // Remote ⏯ (or L): loop the bar being played, or stop looping.
+  function toggleLoop() {
+    if (!session) return;
+    if (loop) return setLoop(null);
+    var st = session.current(), bar = P.barOf(song, st ? st.start : clock);
+    setLoop({ from: bar, to: bar });
+  }
+
+  // Remote ◀ ▶ while looping: move the loop by a bar, keeping its length.
+  function moveLoop(dir) {
+    if (!loop) return;
+    var len = loop.to - loop.from, bars = P.barCount(song);
+    var from = Math.max(1, Math.min(bars - len, loop.from + dir));
+    if (from !== loop.from) setLoop({ from: from, to: from + len });
   }
 
   // Which song plays: the one asked for (remote or link page), else ?song=, else the last one
@@ -140,7 +206,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(function () { loadSong(id); }, 10000); }
         songId = pick.id;
         try { localStorage.setItem("pianoSong", songId); } catch (e) {}
-        rawSong = s; song = null; session = null; held = {};
+        rawSong = s; song = null; session = null; held = {}; loop = null;
         fitSong();
         if (id) toast(s.title);
       });
@@ -171,7 +237,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
   function restart() {
     if (!session) return;
-    session.restart(); clock = -LEAD_IN; paused = false; held = {};
+    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {};
     panel();
     report();
   }
@@ -192,6 +258,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     } else if (r.result !== "ignored") {
       flash[n] = { color: "#3ddc84", until: Date.now() + FLASH_MS };
       $("hint").className = ""; hintUntil = 0;
+    }
+    if (r.result === "pass") {
+      // One time through the loop: say whether it was clean and start the bars again.
+      toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
+      clock = session.range.start - LEAD_IN / 2;
     }
     if (r.result === "done") panel();
     report();
@@ -257,16 +328,27 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "restart") { if (mode !== "play") { mode = "play"; setLayout(cal); } restart(); }
     else if (c.cmd === "pause" && mode === "play") { paused = !paused; report(); }
     else if (c.cmd === "song") { if (mode === "play" && c.id) loadSong(c.id); }
+    else if (c.cmd === "hand") setHand(c.id);
+    else if (c.cmd === "loop") setLoop(c.from ? { from: c.from, to: c.to || c.from } : null);
+  }
+
+  // Play-pause on the Fire TV remote; L on a keyboard.
+  function isLoopKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    return e.key === "MediaPlayPause" || e.key === "l" || e.key === "L" || ((e.key === undefined || e.key === "Unidentified") && (e.keyCode === 179 || e.keyCode === 85));
   }
 
   // Remote: while calibrating ◀ ▶ move the edge line 1 device pixel (10 when held or with Shift), OK
-  // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song, OK pauses (or replays a
-  // finished song), ▼ or C calibrates, and ⏪ / ⏩ (or M) switch the TV to the wall.
+  // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song (or move the loop while
+  // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
+  // loop, OK pauses (or replays a finished song), ▼ or C calibrates, and ⏪ / ⏩ (or M) switch to the wall.
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
-    else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) stepSong(-1); } else nudge(-step); e.preventDefault(); }
-    else if (k === "ArrowRight") { if (mode === "play") { if (!e.repeat) stepSong(1); } else nudge(step); e.preventDefault(); }
+    else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
+    else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(-1) : stepSong(-1); } else nudge(-step); e.preventDefault(); }
+    else if (k === "ArrowRight") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(1) : stepSong(1); } else nudge(step); e.preventDefault(); }
+    else if ((k === "ArrowUp" || k === "h" || k === "H") && mode === "play") { if (!e.repeat) setHand(P.nextHand(hand)); e.preventDefault(); }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
     else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play") { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
@@ -325,6 +407,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     return {
       mode: mode, paused: paused,
       songId: songId, song: song ? song.title : "", step: session ? session.index : 0, steps: session ? session.steps.length : 0,
+      hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
+      loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
@@ -347,6 +431,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       "<p>Range: <b>" + P.noteName(work.low) + "–" + P.noteName(work.high) + "</b> (" + (work.high - work.low + 1) + " keys) · line at " + Math.round(work.right) + " px</p>";
     else if (mode === "cal3") h = "<div class=step>Calibrate · step 3 of 3</div><h1>Play a few keys anywhere</h1>" +
       "<p>Each key lights a beam straight above itself. If the beams line up, press <b>OK</b> to save. <b>Back</b> redoes the edges.</p>";
+    else if (session && session.done && loop) h = "<div class=step>Loop finished</div><h1>" + esc(barsText(loop).replace(/^b/, "B")) + " clean " + session.cleanNeeded + " times in a row!</h1>" +
+      "<p>" + session.passes + " passes · accuracy <b>" + Math.round(session.accuracy() * 100) + "%</b>. <b>OK</b> loops again, <b>⏯</b> stops the loop, <b>▶</b> moves to the next bar.</p>";
     else if (session && session.done) h = "<div class=step>Finished</div><h1>Well played!</h1>" +
       "<p>Accuracy <b>" + Math.round(session.accuracy() * 100) + "%</b> · best streak <b>" + session.bestStreak + "</b>. Press <b>OK</b> or play any key to go again.</p>";
     if (calWarn) h += "<p class=warn>" + esc(calWarn) + "</p>";
@@ -387,6 +473,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
     var want = {}, current = session && mode === "play" ? session.current() : null;
     if (current) current.notes.forEach(function (x) { want[x] = session.hit[x] ? "hit" : "want"; });
+    var lo = loop ? session.range.start : -Infinity, hi = loop ? session.range.end : Infinity;
 
     // Falling notes, clipped at the hit line.
     if (song && session && mode === "play") {
@@ -397,11 +484,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         if (!key) continue;
         var bottom = hitY - (nt.start - clock) * ppb, top = bottom - nt.length * ppb;
         if (bottom < 0 || top > hitY) continue;
-        var isCur = Math.abs(nt.start - curStart) < 1e-6;
-        var col = nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : "#ffb020") : (key.black ? "#2f7fd6" : "#4da3ff");
+        // Notes the session does not ask for (the other hand, bars outside the loop) are dimmed.
+        var mine = (session.hand === "both" || nt.hand === session.hand) && nt.start >= lo - 1e-6 && nt.start < hi - 1e-6;
+        var isCur = mine && Math.abs(nt.start - curStart) < 1e-6, hc = HAND[nt.hand] || HAND.right;
+        var col = !mine ? (key.black ? hc.black : hc.white) : nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : hc.want) : (key.black ? hc.black : hc.white);
         roundRect(key.x0 + gap, top + gap, key.x1 - key.x0 - 2 * gap, bottom - top - 2 * gap, Math.min(10 * DPR, (key.x1 - key.x0) / 3));
+        ctx.globalAlpha = mine ? 1 : 0.22;
         ctx.fillStyle = col; ctx.fill();
+        if (isCur && want[nt.note] !== "hit") { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
         if (nt.shifted) { ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
+        ctx.globalAlpha = 1;
       }
       ctx.restore();
     }
@@ -428,7 +520,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         if (kk.black !== (pass === 1)) continue;
         var fl = flash[m] && flash[m].until > now ? flash[m].color : null;
         var fill = kk.black ? "#10141c" : "#e9edf3";
-        if (want[m] === "want") fill = "#ffb020";
+        if (want[m] === "want") fill = (HAND[current.hands[m]] || HAND.right).want;
         if (held[m]) fill = mode === "play" ? (want[m] === "hit" || (fl === "#3ddc84") ? "#3ddc84" : fl || (kk.black ? "#3a4a66" : "#9fb3d1")) : "#4da3ff";
         else if (fl) fill = fl;
         var x0 = Math.round(kk.x0), x1 = Math.round(kk.x1);
@@ -465,17 +557,31 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var lastSide = "";
   function side() {
     if (!session) return;
-    var bar = Math.max(1, Math.floor(Math.max(0, clock) / song.beatsPerBar) + 1);
-    var bars = Math.ceil(song.notes.reduce(function (a, x) { return Math.max(a, x.start + x.length); }, 0) / song.beatsPerBar);
-    var wantNames = session.waitingFor().map(P.noteName).join(" ");
-    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused].join("|");
+    var bar = P.barOf(song, clock), bars = P.barCount(song);
+    var st = session.current(), waiting = session.waitingFor();
+    var wantNames = waiting.map(P.noteName).join(" ");
+    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused, session.passes, session.cleanPasses, session.passWrong].join("|");
     if (key === lastSide) return;
     lastSide = key;
     $("bar").textContent = session.done ? "Finished" : Math.min(bar, bars) + " of " + bars + (paused ? " · paused" : "");
     $("acc").textContent = session.correct + session.wrong ? Math.round(session.accuracy() * 100) + "%" : "-";
     $("streak").textContent = session.streak + (session.bestStreak > session.streak ? " (best " + session.bestStreak + ")" : "");
-    $("want").textContent = session.done ? "OK to replay" : wantNames || "-";
-    $("want").style.color = session.done ? "#3ddc84" : "#ffb020";
+    // Each waiting note in its hand's colour.
+    $("want").innerHTML = session.done ? "OK to replay" : waiting.length ? waiting.map(function (n) {
+      return '<span class="' + (st.hands[n] || "right") + '">' + P.noteName(n) + "</span>";
+    }).join(" ") : "-";
+    $("want").style.color = session.done ? "#3ddc84" : "";
+    // Practice loop counter: one dot per clean pass still needed in a row.
+    $("loopBox").className = loop ? "on" : "";
+    if (loop) {
+      var dots = "";
+      for (var i = 0; i < session.cleanNeeded; i++) dots += i < session.cleanPasses ? "●" : "○";
+      $("loopLbl").textContent = "Loop · " + barsText(loop);
+      $("loopVal").textContent = dots;
+      $("loopSub").textContent = session.cleanPasses + " of " + session.cleanNeeded + " clean in a row" +
+        (session.passWrong && !session.done ? " · this pass has a mistake" : "") + " · pass " + (session.passes + (session.done ? 0 : 1));
+    }
+    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off" : "◀ ▶ song · ⏯ loop bar") + " · ▲ hand · ⏪⏩ wall";
   }
 
   // ---------- helpers ----------
