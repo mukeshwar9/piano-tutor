@@ -79,11 +79,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <div id="panel"></div>
 <div id="progress"></div>
 <script src="/piano-core.js"></script>
+<script src="/piano-sheet.js"></script>
+<script src="/vendor/vexflow-4.2.5-bravura.js"></script>
 <script src="/switch.js"></script>
 <script>
 (function () {
   "use strict";
-  var P = window.PianoCore;
+  var P = window.PianoCore, S = window.PianoSheet;
+  var VF = window.Vex && (window.Vex.Flow || window.Vex);
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $("c"), ctx = canvas.getContext("2d");
   var W = 0, H = 0, DPR = 1;
@@ -99,6 +102,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     left: { white: "#e26ad0", black: "#b9479f", want: "#ff9ff0" },
   };
   var HAND_NAMES = { right: "Right hand", left: "Left hand", both: "Both hands" };
+  // Sheet music: the grand staff's share of the screen height in each view, its height in VexFlow
+  // units (treble and bass staves with room for ledger lines and finger numbers) and colours.
+  var VIEW_NAMES = { notes: "Falling notes only", both: "Sheet music and falling notes", sheet: "Sheet music only" };
+  var SHEET_H = { both: 0.3, sheet: 0.5 };
+  var STAFF_U = 235, TREBLE_Y = 22, BASS_Y = 122;
+  var INK = "#d5dce8", PANEL = "#0f1724";
 
   var saved = null;         // calibration from the server (null until one is saved)
   var cal = null;           // calibration in this screen's device pixels
@@ -121,6 +130,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
   var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
   var progressOn = false, history = null;
+  var view = rememberedView();        // notes | both | sheet
+  var sheet = null;         // the current song as notation, with its rendered pages
+  var marks = {};           // song beat of each step played this time through -> "ok" | "bad"
 
   // ---------- sizing ----------
 
@@ -168,7 +180,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     cancelListen();
     loop = P.clampLoop(song, loop);
     session = P.createSession(song, { hand: hand, loop: loop });
-    clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null;
+    clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
     showBest();
     var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
     $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
@@ -186,6 +198,21 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     fingers = id === "on" ? true : id === "off" ? false : !fingers;
     try { localStorage.setItem("pianoFingers", fingers ? "on" : "off"); } catch (e) {}
     toast(fingers ? "Finger numbers on" : "Finger numbers off");
+    report();
+  }
+
+  function rememberedView() {
+    var v = "";
+    try { v = localStorage.getItem("pianoView") || ""; } catch (e) {}
+    return VIEW_NAMES[v] ? v : "both";
+  }
+
+  // Link page (or V): falling notes only, sheet music and falling notes, or sheet music only.
+  // id is "notes", "both", "sheet" or "" for the next one.
+  function setView(id) {
+    view = VIEW_NAMES[id] ? id : S.nextView(view);
+    try { localStorage.setItem("pianoView", view); } catch (e) {}
+    toast(VIEW_NAMES[view]);
     report();
   }
 
@@ -320,7 +347,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function restart() {
     if (!session) return;
     cancelListen();
-    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null;
+    session.restart(); clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
     panel();
     report();
   }
@@ -337,7 +364,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (progressOn) return;
     if (session.done) { restart(); held[n] = true; }
     if (!playStart) playStart = Date.now();
-    var r = session.press(n);
+    var st = session.current(), r = session.press(n);
+    // The sheet music colours each step played: green, or red when it took a wrong key.
+    if (r.result === "wrong") marks[st.start] = "bad";
+    else if (r.result === "advance" || r.result === "pass" || r.result === "done") marks[st.start] = marks[st.start] || "ok";
     if (r.result === "wrong") {
       // A wrong key stays red while it is held down, then fades.
       flash[n] = { color: "#ff5252", until: Infinity };
@@ -350,6 +380,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       // One time through the loop: say whether it was clean and start the bars again.
       toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
       clock = session.range.start - LEAD_IN / 2;
+      marks = {};
     }
     if (r.result === "done") { panel(); saveResult(); }
     report();
@@ -490,6 +521,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "listen") toggleListen();
     else if (c.cmd === "fingers") setFingers(c.id);
     else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
+    else if (c.cmd === "view") setView(c.id);
   }
 
   // Play-pause on the Fire TV remote; L on a keyboard.
@@ -502,8 +534,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song (or move the loop while
   // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
-  // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers and S opens
-  // the progress screen (also the link page's Progress button; OK or Back closes it).
+  // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
+  // the progress screen (also the link page's Progress button; OK or Back closes it) and V switches
+  // between falling notes, sheet music and both.
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     if (TVSwitch.isListenKey(e)) { e.preventDefault(); if (!e.repeat) toggleListen(); }
@@ -518,6 +551,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
+    else if ((k === "v" || k === "V") && mode === "play") setView("");
   });
 
   // ---------- relay ----------
@@ -582,7 +616,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode,
+      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
       correct: session ? session.correct : 0, wrong: session ? session.wrong : 0,
@@ -645,6 +679,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       clock = P.advanceClock(clock, dt, song.bpm, st ? st.start : null);
     }
     if (hintUntil && now > hintUntil) { $("hint").className = ""; hintUntil = 0; }
+    place();
     draw(now);
     side();
     requestAnimationFrame(frame);
@@ -653,16 +688,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function draw(now) {
     var c = mode === "play" ? cal : work;
     var keyTop = Math.round(H * (1 - KEY_H)), hitY = keyTop - Math.round(H * 0.006);
-    var ppb = hitY / LOOKAHEAD;
+    // With the sheet music up, the falling notes run from just under it (or not at all on their own).
+    var box = sheetBox(), areaTop = box ? box.y + box.h + Math.round(H * 0.012) : 0, falling = !box || view === "both";
+    var ppb = (hitY - areaTop) / LOOKAHEAD;
     ctx.fillStyle = "#0b0f17"; ctx.fillRect(0, 0, W, H);
 
     // Lanes: faint lines at the white-key boundaries inside the strip.
-    ctx.fillStyle = "#121a28";
-    ctx.fillRect(c.left, 0, c.right - c.left, keyTop);
-    ctx.fillStyle = "#1a2333";
-    for (var n = layout.low; n <= layout.high; n++) {
-      var k = layout.keys[n];
-      if (!k.black && (n % 12 === 0 || n % 12 === 5)) ctx.fillRect(Math.round(k.x0), 0, Math.max(1, Math.round(DPR)), keyTop);
+    if (falling) {
+      ctx.fillStyle = "#121a28";
+      ctx.fillRect(c.left, areaTop, c.right - c.left, keyTop - areaTop);
+      ctx.fillStyle = "#1a2333";
+      for (var n = layout.low; n <= layout.high; n++) {
+        var k = layout.keys[n];
+        if (!k.black && (n % 12 === 0 || n % 12 === 5)) ctx.fillRect(Math.round(k.x0), areaTop, Math.max(1, Math.round(DPR)), keyTop - areaTop);
+      }
     }
 
     var want = {}, current = session && mode === "play" && !listen ? session.current() : null;
@@ -673,14 +712,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     for (var sn in snd) want[sn] = "sound";
 
     // Falling notes, clipped at the hit line.
-    if (song && session && mode === "play") {
-      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, hitY); ctx.clip();
+    if (song && session && mode === "play" && falling) {
+      ctx.save(); ctx.beginPath(); ctx.rect(0, areaTop, W, hitY - areaTop); ctx.clip();
       var curStart = current ? current.start : Infinity, gap = Math.max(2, Math.round(DPR * 2));
       for (var i = 0; i < song.notes.length; i++) {
         var nt = song.notes[i], key = layout.keys[nt.note];
         if (!key) continue;
         var bottom = hitY - (nt.start - clock) * ppb, top = bottom - nt.length * ppb;
-        if (bottom < 0 || top > hitY) continue;
+        if (bottom < areaTop || top > hitY) continue;
         // Notes the session does not ask for (the other hand, bars outside the loop) are dimmed.
         var hc = HAND[nt.hand] || HAND.right, mine, isCur, col;
         if (lp) {
@@ -745,10 +784,208 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       }
     }
 
+    if (box) drawSheet(box, now, current, lo, hi, lp, snd);
+
     // Calibration edge lines and the range labels.
     if (mode === "cal1" || mode === "cal2") {
       edge(work.left, mode === "cal1"); edge(work.right, mode === "cal2");
     }
+  }
+
+  // ---------- sheet music ----------
+
+  // Where the grand staff goes: across the top of the strip, or nowhere (falling notes only,
+  // calibrating, or no song yet).
+  function sheetBox() {
+    if (view === "notes" || mode !== "play" || !song || !session || !cal) return null;
+    return { x: Math.round(cal.left), y: Math.round(H * 0.012), w: Math.round(cal.right - cal.left), h: Math.round(H * SHEET_H[view]) };
+  }
+
+  // The song as notation, rebuilt when the song, the size or the finger setting changes. Pages
+  // of 2 to 4 bars are drawn with VexFlow once into their own canvas and only copied each frame.
+  function sheetFor(box) {
+    var id = [songId, song.fitLow, song.fitHigh, box.w, box.h, fingers].join("|");
+    if (sheet && sheet.id === id && sheet.song === song) return sheet;
+    var scale = box.h / STAFF_U;
+    sheet = { id: id, song: song, box: box, scale: scale, model: S.buildSheet(song), pages: {}, error: VF ? "" : "VexFlow did not load" };
+    sheet.per = Math.min(sheet.model.bars.length, S.barsPerView(box.w / scale - 80));
+    return sheet;
+  }
+
+  function sheetPage(sh, start) {
+    if (!sh.pages[start]) {
+      try { sh.pages[start] = renderPage(sh, start); } catch (e) { sh.error = "Sheet music failed: " + (e && e.message || e); sh.pages[start] = null; }
+    }
+    return sh.pages[start];
+  }
+
+  // Draws bars start .. start + per - 1. Returns the canvas with what the overlay needs: each note
+  // head's place, the x of each beat (for the playhead) and each bar's extent, in device pixels.
+  function renderPage(sh, start) {
+    var box = sh.box, s = sh.scale, model = sh.model, bars = model.bars.length;
+    var cv = document.createElement("canvas");
+    cv.width = box.w; cv.height = box.h;
+    var r = new VF.Renderer(cv, VF.Renderer.Backends.CANVAS), vc = r.getContext();
+    vc.scale(s, s);
+    vc.setFillStyle(INK); vc.setStrokeStyle(INK);
+    var page = { canvas: cv, heads: [], anchors: [], bars: [] };
+    var wu = box.w / s, pad = 16;
+    // The first bar carries the clefs, key and time signature; the others share what is left.
+    var probe = new VF.Stave(0, 0, 200).addClef("treble").addKeySignature(model.key).addTimeSignature(model.time);
+    var headW = probe.getNoteStartX() + 4, barW = (wu - 2 * pad - headW) / sh.per;
+    var x = pad, ties = { treble: null, bass: null }, last = Math.min(bars, start + sh.per - 1);
+    for (var b = start; b <= last; b++) {
+      var bar = model.bars[b - 1], first = b === start, w = barW + (first ? headW : 0);
+      var t = new VF.Stave(x, TREBLE_Y, w), bs = new VF.Stave(x, BASS_Y, w);
+      if (first) {
+        t.addClef("treble").addKeySignature(model.key);
+        bs.addClef("bass").addKeySignature(model.key);
+        if (b === 1) { t.addTimeSignature(model.time); bs.addTimeSignature(model.time); }
+      }
+      t.setMeasure(bar.number);
+      if (b === bars) { t.setEndBarType(VF.Barline.type.END); bs.setEndBarType(VF.Barline.type.END); }
+      var noteX = Math.max(t.getNoteStartX(), bs.getNoteStartX());
+      t.setNoteStartX(noteX); bs.setNoteStartX(noteX);
+      t.setContext(vc).draw(); bs.setContext(vc).draw();
+      if (first) {
+        new VF.StaveConnector(t, bs).setType(VF.StaveConnector.type.BRACE).setContext(vc).draw();
+        new VF.StaveConnector(t, bs).setType(VF.StaveConnector.type.SINGLE_LEFT).setContext(vc).draw();
+      }
+      new VF.StaveConnector(t, bs).setType(b === bars ? VF.StaveConnector.type.BOLD_DOUBLE_RIGHT : VF.StaveConnector.type.SINGLE_RIGHT).setContext(vc).draw();
+
+      var tn = bar.treble.map(function (ev) { return staveNote(ev, "treble"); });
+      var bn = bar.bass.map(function (ev) { return staveNote(ev, "bass"); });
+      var beams = VF.Beam.generateBeams(tn).concat(VF.Beam.generateBeams(bn));
+      var tv = voice(tn), bv = voice(bn);
+      new VF.Formatter().joinVoices([tv]).joinVoices([bv]).format([tv, bv], t.getNoteEndX() - noteX - 12);
+      tv.draw(vc, t); bv.draw(vc, bs);
+      beams.forEach(function (bm) { bm.setContext(vc).draw(); });
+      tieUp("treble", bar.treble, tn); tieUp("bass", bar.bass, bn);
+      collect("treble", bar.treble, tn); collect("bass", bar.bass, bn);
+      page.bars.push({ number: bar.number, x0: x * s, x1: (x + w) * s });
+      x += w;
+    }
+    // Every bar starts with a note or rest, so only the page's end needs an anchor of its own.
+    page.anchors.push({ beat: model.bars[last - 1].end, x: (x - 4) * s });
+    // Ties running off the page are drawn half.
+    ["treble", "bass"].forEach(function (staff) {
+      if (ties[staff]) new VF.StaveTie({ first_note: ties[staff].note, first_indices: ties[staff].idx, last_indices: ties[staff].idx }).setContext(vc).draw();
+    });
+    page.anchors.sort(function (a, c) { return a.beat - c.beat; });
+
+    function voice(notes) {
+      return new VF.Voice({ num_beats: model.beatsPerBar, beat_value: 4 }).setMode(VF.Voice.Mode.SOFT).addTickables(notes);
+    }
+    function tieUp(staff, evs, notes) {
+      for (var i = 0; i < evs.length; i++) {
+        var idx = evs[i].notes.map(function (n, j) { return j; });
+        if (evs[i].tieFrom) {
+          var from = ties[staff];
+          new VF.StaveTie({ first_note: from ? from.note : null, last_note: notes[i], first_indices: idx, last_indices: idx }).setContext(vc).draw();
+        }
+        ties[staff] = evs[i].tieTo ? { note: notes[i], idx: idx } : null;
+      }
+    }
+    function collect(staff, evs, notes) {
+      for (var i = 0; i < evs.length; i++) {
+        var nn = notes[i], cx = (nn.getNoteHeadBeginX() + nn.getNoteHeadEndX()) / 2;
+        page.anchors.push({ beat: evs[i].start, x: cx * s });
+        if (evs[i].rest) continue;
+        var ys = nn.getYs();
+        for (var j = 0; j < ys.length; j++) {
+          page.heads.push({ ev: evs[i], k: j, staff: staff, x: cx * s, y: ys[j] * s, r: (nn.getNoteHeadEndX() - nn.getNoteHeadBeginX()) / 2 * s });
+        }
+      }
+    }
+    return page;
+  }
+
+  function staveNote(ev, clef) {
+    var nn = new VF.StaveNote({
+      clef: clef, auto_stem: true,
+      keys: ev.rest ? [clef === "treble" ? "b/4" : "d/3"] : ev.keys,
+      duration: ev.duration + new Array(ev.dots + 1).join("d") + (ev.rest ? "r" : ""),
+    });
+    if (ev.dots) VF.Dot.buildAndAttach([nn], { all: true });
+    for (var i = 0; i < ev.accidentals.length; i++) if (ev.accidentals[i]) nn.addModifier(new VF.Accidental(ev.accidentals[i]), i);
+    // Finger numbers above the right hand's notes and below the left hand's, clear of the stems,
+    // a chord's stacked with its top note's on top.
+    var fs = ev.fingers.filter(function (f) { return f; });
+    if (fingers && fs.length) {
+      var a = new VF.Annotation(fs.reverse().join("\n"));
+      a.setFont("Arial", 13, "bold");
+      a.setVerticalJustification(clef === "treble" ? VF.Annotation.VerticalJustify.TOP : VF.Annotation.VerticalJustify.BOTTOM);
+      nn.addModifier(a, 0);
+    }
+    return nn;
+  }
+
+  // Each frame: the page holding the bar being played, the loop's bars, the hand not being
+  // practised dimmed, played steps green (red when a wrong key was pressed), the step waiting
+  // for keys amber, and the playhead at the song clock.
+  function drawSheet(box, now, current, lo, hi, lp, snd) {
+    var sh = sheetFor(box), s = sh.scale;
+    ctx.fillStyle = PANEL;
+    roundRect(box.x, box.y, box.w, box.h, 10 * DPR); ctx.fill();
+    if (sh.error) return sheetText(sh.error, box);
+    var bars = sh.model.bars.length;
+    var focus = current && !lp ? current.start : clock;
+    var start = S.viewStart(Math.min(bars, P.barOf(song, focus)), sh.per, bars);
+    var page = sheetPage(sh, start);
+    if (!page) return sheetText(sh.error, box);
+    // The next page is drawn ahead, between frames, so turning to it costs nothing.
+    if (start + sh.per <= bars && sh.pages[start + 1] === undefined && !sheetPage.pending) {
+      sheetPage.pending = setTimeout(function () { sheetPage.pending = null; if (sheet === sh) sheetPage(sh, start + 1); }, 60);
+    }
+    for (var k in sh.pages) if (Number(k) < start - 1 || Number(k) > start + 1) delete sh.pages[k];
+
+    var split = box.y + Math.round((BASS_Y + 20) * s);
+    if (loop) page.bars.forEach(function (b) {
+      if (b.number < loop.from || b.number > loop.to) return;
+      ctx.fillStyle = "rgba(61,220,132,.10)"; ctx.fillRect(box.x + b.x0, box.y, b.x1 - b.x0, box.h);
+    });
+    ctx.drawImage(page.canvas, box.x, box.y);
+    var practised = lp ? lp.hand : session.hand;
+    if (practised !== "both") {
+      ctx.fillStyle = "rgba(15,23,36,.62)";
+      if (practised === "right") ctx.fillRect(box.x, split, box.w, box.y + box.h - split);
+      else ctx.fillRect(box.x, box.y, box.w, split - box.y);
+    }
+
+    var curStart = current ? current.start : Infinity;
+    for (var i = 0; i < page.heads.length; i++) {
+      var h = page.heads[i], ev = h.ev, staffHand = h.staff === "bass" ? "left" : "right", col = "";
+      if (practised !== "both" && staffHand !== practised) continue;
+      if (lp) {
+        if (clock >= ev.start - 1e-6 && clock < ev.start + ev.beats && ev.src >= lp.startBeat - 1e-6 && ev.src < lp.endBeat - 1e-6) col = "#ffb020";
+      } else if (ev.src < lo - 1e-6 || ev.src >= hi - 1e-6) {
+        continue;
+      } else if (current && Math.abs(ev.src - curStart) < 1e-6) {
+        col = session.hit[ev.notes[h.k]] ? "#3ddc84" : "#ffb020";
+      } else if (marks[ev.src]) {
+        col = marks[ev.src] === "bad" ? "#ff5252" : "#3ddc84";
+      }
+      if (!col) continue;
+      ctx.save();
+      ctx.translate(box.x + h.x, box.y + h.y); ctx.rotate(-0.35);
+      ctx.beginPath(); ctx.scale(1, 0.72); ctx.arc(0, 0, h.r * 1.12, 0, Math.PI * 2);
+      ctx.restore();
+      ctx.fillStyle = col; ctx.fill();
+      if (current && !lp && marks[ev.src] === "bad" && Math.abs(ev.src - curStart) < 1e-6) { ctx.strokeStyle = "#ff5252"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
+    }
+
+    // Playhead: an amber line through both staves at the song clock.
+    var px = S.beatX(page.anchors, Math.max(clock, sh.model.bars[start - 1].start));
+    if (px === px) {
+      ctx.fillStyle = "rgba(255,176,32,.85)";
+      ctx.fillRect(Math.round(box.x + px - DPR), box.y + Math.round(16 * s), Math.max(2, Math.round(2.5 * DPR)), box.h - Math.round(26 * s));
+    }
+  }
+
+  function sheetText(text, box) {
+    ctx.font = "600 " + Math.round(H / 50) + 'px -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#8b97ab";
+    ctx.fillText(text, box.x + box.w / 2, box.y + box.h / 2);
   }
 
   function fingerText(f, cx, cy, size, color) {
@@ -771,6 +1008,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
     ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
     ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+  }
+
+  // The hint, toast, listen badge and panel sit at the top of the screen, or under the sheet music.
+  var lastPlace = "";
+  function place() {
+    var box = sheetBox(), top = box ? (box.y + box.h) / DPR + window.innerHeight / 60 + "px" : "";
+    if (top === lastPlace) return;
+    lastPlace = top;
+    ["hint", "toast", "listen", "panel"].forEach(function (id) { $(id).style.top = top; });
   }
 
   var lastSide = "";

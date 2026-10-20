@@ -97,6 +97,9 @@ select.bar{min-width:0}
   <div class="btns" style="margin-top:8px">
     <button id="bListen" class="pri">Hear it first</button><button id="bFingers">Finger numbers</button>
   </div>
+  <div class="btns" style="margin-top:8px">
+    <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
+  </div>
   <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo, for the hand you practise; then it is your turn. On the remote: ⏪.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
@@ -320,6 +323,7 @@ select.bar{min-width:0}
     $("bListen").className = s.listening ? "sel" : "pri";
     $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
     $("bFingers").className = s.fingers === false ? "" : "sel";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
     if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
     listenShown = !!s.listening;
   }
@@ -484,6 +488,9 @@ select.bar{min-width:0}
   $("bLoopOff").onclick = function () { loopControl(0, 0); };
   $("bProgress").onclick = function () { control("progress", 0, tvState && tvState.progress ? "off" : "on"); };
   $("bListen").onclick = function () { control("listen"); };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
+    b.onclick = function () { control("view", 0, b.dataset.view); };
+  });
   $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {
     b.onclick = function () { control("nudge", Number(b.dataset.px)); };

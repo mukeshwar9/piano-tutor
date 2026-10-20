@@ -128,7 +128,7 @@
     return c === "r" ? "right" : c === "l" ? "left" : "";
   }
 
-  // Song file: { title, hand, notes: [[name, startBeat, lengthBeats, hand?, finger?], ...], bpm, beatsPerBar, ... }.
+  // Song file: { title, hand, notes: [[name, startBeat, lengthBeats, hand?, finger?], ...], bpm, beatsPerBar, key?, ... }.
   // A note without its own hand ("R" / "L") belongs to the song's hand, which defaults to right.
   // finger is 1 (thumb) to 5 (little finger); a number in the hand's place is a finger with the
   // song's hand, so ["E4", 0, 1, 3] and ["E4", 0, 1, "R", 3] are the same note.
@@ -163,6 +163,8 @@
         hands: ["right", "left"].filter(function (h) { return present[h]; }),
         bpm: Number(raw.bpm) > 0 ? Number(raw.bpm) : 80,
         beatsPerBar: Number(raw.beatsPerBar) > 0 ? Number(raw.beatsPerBar) : 4,
+        // Key signature for the sheet music ("G", "Bb", "Em"); guessed from the notes when empty.
+        key: String(raw.key || ""),
         notes: notes,
       },
     };
