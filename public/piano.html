@@ -123,6 +123,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var flash = {};           // note -> { color, until }
   var hintUntil = 0;
   var online = false, presence = null;
+  var micMode = false;      // notes come from a microphone on the link page: wait mode is forgiving
   var listen = null;        // Hear it first while it plays: { plan, t0, clock, paused, label }
   var listenReq = null, echoUntil = 0;
   var fingers = rememberedFingers();  // finger numbers on the falling notes and lit keys
@@ -179,14 +180,28 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (!song) return;
     cancelListen();
     loop = P.clampLoop(song, loop);
-    session = P.createSession(song, { hand: hand, loop: loop });
+    session = P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
     clock = session.range.start - LEAD_IN; paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
     showBest();
-    var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
-    $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "");
+    modeText();
     lastSide = "";
     panel();
     report();
+  }
+
+  function modeText() {
+    var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
+    $("mode").textContent = "Wait mode · " + HAND_NAMES[session.hand].toLowerCase() + only + " · " + song.bpm + " bpm" + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "") +
+      (micMode ? " · mic: octave and top note" : "");
+  }
+
+  // The link page switched between the keyboard's MIDI and a microphone. Mic mode is forgiving (the
+  // right note name within an octave, only a chord's top note) and works best one hand at a time.
+  function setMicMode(on) {
+    if (on === micMode) return;
+    micMode = on;
+    if (session) { session.setTolerant(on); modeText(); lastSide = ""; panel(); report(); }
+    toast(on ? (session && session.hand === "both" && song.hands.length > 1 ? "Microphone: one hand at a time works best · ▲ hand" : "Microphone input · forgiving") : "Keyboard input");
   }
 
   function rememberedFingers() {
@@ -576,7 +591,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       if (c && (!saved || c.savedAt !== saved.savedAt)) { saved = c; if (mode === "play") applyCalibration(); }
       if (!c && !saved && mode === "play" && !connect.asked) { connect.asked = true; startCalibration(); }
     });
-    es.addEventListener("presence", function (m) { presence = JSON.parse(m.data); status(); });
+    es.addEventListener("presence", function (m) { presence = JSON.parse(m.data); setMicMode(presence.input === "mic"); status(); });
     // The songs folder changed: a new song joins the ◀ ▶ list, and the song on screen loads again
     // when its file (or its import settings) changed.
     es.addEventListener("songs", function (m) {
@@ -590,7 +605,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var s = [];
     s.push(online ? "Server <b class=ok>connected</b>" : "Server <b class=bad>reconnecting…</b>");
     if (presence) {
-      if (presence.device) s.push("Keyboard <b class=ok>" + esc(presence.device) + "</b>");
+      if (presence.input === "mic") s.push(presence.device ? esc(presence.device.replace(/^Microphone: /, "Mic ")) + " <b class=ok>listening</b>" : "Mic <b class=bad>not listening</b>: press Start listening on the link page");
+      else if (presence.device) s.push("Keyboard <b class=ok>" + esc(presence.device) + "</b>");
       else if (presence.link) s.push("Keyboard <b class=bad>not found</b>: plug the Casio into the Mac");
       else s.push("Keyboard <b class=bad>no link page</b>: open localhost:4410/piano/link in Chrome on the Mac");
     }
@@ -616,7 +632,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view,
+      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       waitingFor: session ? session.waitingFor().map(P.noteName) : [],
       accuracy: session ? Math.round(session.accuracy() * 100) : 100, streak: session ? session.streak : 0,
       correct: session ? session.correct : 0, wrong: session ? session.wrong : 0,
@@ -705,7 +721,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     }
 
     var want = {}, current = session && mode === "play" && !listen ? session.current() : null;
-    if (current) current.notes.forEach(function (x) { want[x] = session.hit[x] ? "hit" : "want"; });
+    // In mic mode only a chord's top note is wanted, so only that key lights.
+    if (current) session.needed().forEach(function (x) { want[x] = session.hit[x] ? "hit" : "want"; });
     var lo = loop ? session.range.start : -Infinity, hi = loop ? session.range.end : Infinity;
     // While Hear it first plays, the keys sounding now are lit instead of the ones wait mode wants.
     var lp = listen && listen.plan, snd = lp ? P.sounding(lp, now - listen.t0) : {};

@@ -44,11 +44,39 @@ select.bar{min-width:0}
 .file b{font-size:16px}.file .err{color:var(--red)}
 .file select{min-width:0;padding:6px 10px;font-size:14px}.file button{padding:6px 10px;font-size:14px}
 #drop.over{outline:2px dashed var(--blue);outline-offset:4px}
+#meter{position:relative;height:14px;background:#0b111c;border:1px solid var(--line2);border-radius:7px;overflow:hidden;margin-top:8px}
+#meterBar{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mut)}
+#meterBar.on{background:var(--green)}
+#meterGate{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}
+#micNote{font-size:28px;font-weight:800;min-width:64px}
 #log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut);white-space:pre;max-height:110px;overflow:hidden}
 </style>
 </head>
 <body>
 <h1>Piano link <small>keyboard → TV</small></h1>
+
+<div class="card">
+  <div class="lbl">Input</div>
+  <div class="btns">
+    <button data-input="midi">Keyboard cable (MIDI)</button><button data-input="mic">Microphone</button>
+  </div>
+  <div class="sub" id="inHelp" style="margin-top:8px"></div>
+  <div id="micBox" hidden>
+    <div class="btns" style="margin-top:10px;align-items:center">
+      <select id="micDev" aria-label="Microphone"><option value="">Default microphone</option></select>
+      <button id="bMic" class="pri">Start listening</button>
+    </div>
+    <div class="row" style="margin-top:10px"><span id="micNote">–</span><span class="sub" id="micHeard">Not listening.</span></div>
+    <div id="meter" aria-label="Sound level"><div id="meterBar"></div><div id="meterGate"></div></div>
+    <div class="btns" style="margin-top:10px;align-items:center">
+      <button id="bCheck">Check: play a C</button>
+      <span class="sub">Sensitivity</span>
+      <select id="micSens" class="bar" aria-label="Sensitivity"><option value="-0.6">Low (noisy room)</option><option value="0">Normal</option><option value="0.6">High (soft piano)</option></select>
+    </div>
+    <div class="sub" id="micCheck" style="margin-top:8px">The check listens to the room for a moment, then asks for a C to test the pitch and the delay.</div>
+    <div class="sub" id="micTip" style="margin-top:8px"></div>
+  </div>
+</div>
 
 <div class="card">
   <div class="lbl">Connection</div>
@@ -133,6 +161,7 @@ select.bar{min-width:0}
 <div class="card"><div class="lbl">Recent notes</div><div id="log"></div></div>
 
 <script src="/piano-core.js"></script>
+<script src="/pitch.js"></script>
 <script>
 (function () {
   "use strict";
@@ -277,7 +306,7 @@ select.bar{min-width:0}
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
       var d = JSON.parse(m.data);
-      if (d.stop) stopPlaying(); else play(d.events);
+      if (d.stop) { stopPlaying(); micMuteUntil = 0; } else { play(d.events); muteMicFor(d.events); }
     });
   }
 
@@ -286,6 +315,7 @@ select.bar{min-width:0}
     if (!s) return;
     markSong();
     renderPractice(s);
+    micTip();
     var mode = { play: s.listening ? "listening to " + s.listening : s.done ? "finished" : s.paused ? "paused" : "playing", cal1: "calibrating: lowest key", cal2: "calibrating: highest key", cal3: "calibrating: check" }[s.mode] || s.mode;
     var hands = { right: "<span class=rh>right hand</span>", left: "<span class=lh>left hand</span>", both: "<span class=rh>both</span> <span class=lh>hands</span>" };
     $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · " + (hands[s.playHand] || "") + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
@@ -364,19 +394,21 @@ select.bar{min-width:0}
     $("sOut").textContent = out ? "Sound out: " + oname + " (Hear it first plays here)" : "Sound out: no MIDI output, Hear it first only lights the keys on the TV";
     if (names.length) { dot("dMidi", "ok"); $("sMidi").textContent = "Keyboard: " + name; $("midiHelp").textContent = ""; }
     else {
-      dot("dMidi", "warn"); $("sMidi").textContent = "No MIDI keyboard found";
-      $("midiHelp").textContent = "Plug the Casio's USB port into this computer and switch it on. It shows up here by itself.";
+      dot("dMidi", input === "mic" ? "" : "warn"); $("sMidi").textContent = "No MIDI keyboard found";
+      $("midiHelp").textContent = input === "mic" ? "" : "Plug the Casio's USB port into this computer and switch it on. It shows up here by itself.";
     }
   }
 
+  // The TV shows which input is in use and is forgiving while it is the microphone.
   function postDevice() {
-    fetch("/api/piano/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: device, output: outName }) }).catch(function () {});
+    var body = input === "mic" ? { input: "mic", device: mic ? "Microphone: " + mic.label : "", output: outName } : { input: "midi", device: device, output: outName };
+    fetch("/api/piano/device", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(function () {});
   }
 
   function startMidi() {
     if (!navigator.requestMIDIAccess) {
-      dot("dMidi", "bad"); $("sMidi").textContent = "Web MIDI is not available here";
-      $("midiHelp").textContent = window.isSecureContext ? "Use Chrome." : "Web MIDI needs localhost or HTTPS: open http://localhost:4410/piano/link in Chrome on the Mac.";
+      dot("dMidi", input === "mic" ? "" : "bad"); $("sMidi").textContent = "Web MIDI is not available here";
+      $("midiHelp").textContent = input === "mic" ? "" : window.isSecureContext ? "Use Chrome, or choose Microphone above." : "Web MIDI needs localhost or HTTPS: open http://localhost:4410/piano/link in Chrome on the Mac, or choose Microphone above.";
       return;
     }
     dot("dOut", "bad"); $("sOut").textContent = "Sound out: needs Web MIDI";
@@ -385,10 +417,227 @@ select.bar{min-width:0}
       // Keep reporting the device so the TV still knows after a server restart.
       setInterval(postDevice, 60000);
     }, function (err) {
-      dot("dMidi", "bad"); $("sMidi").textContent = "MIDI access refused: " + (err && err.message || err);
+      dot("dMidi", input === "mic" ? "" : "bad"); $("sMidi").textContent = "MIDI access refused: " + (err && err.message || err);
       $("midiHelp").textContent = "Allow MIDI devices for this site in Chrome's site settings, then reload.";
     });
   }
+
+  // ---------- microphone ----------
+
+  // Mic mode: the page listens to the piano through this device's microphone, finds the note being
+  // played (public/pitch.js) and sends it like a MIDI note. One note at a time is reliable, so the
+  // TV is forgiving while the input is the microphone (see createSession's tolerant option).
+  var Pitch = window.PitchCore;
+  var input = remembered("pianoInput") === "mic" ? "mic" : "midi";
+  var mic = null;          // { ctx, stream, node, tracker, label } while listening
+  var micMuteUntil = 0;    // Hear it first is playing out loud: what the mic hears is not the player
+  var check = null;        // the level and pitch check: { phase: "quiet" | "c", until }
+  var micHeld = -1;
+
+  function remembered(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+  function remember(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  function setInput(v) {
+    input = v; remember("pianoInput", v);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-input]"), function (b) { b.className = b.dataset.input === input ? "sel" : ""; });
+    $("micBox").hidden = input !== "mic";
+    if (input === "midi") {
+      stopMic();
+      $("inHelp").textContent = "Notes come from the keyboard's USB cable (Web MIDI). Every key is read exactly, chords too.";
+    } else {
+      $("inHelp").textContent = "Notes come from this device's microphone: put it near the piano. Works with any piano or keyboard, no cable. Best for one note at a time.";
+      micSecureHelp();
+    }
+    if (access) scan(); else if (!navigator.requestMIDIAccess) startMidi();
+    postDevice();
+    micTip();
+  }
+
+  function micSecureHelp() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) return true;
+    $("micHeard").textContent = window.isSecureContext ? "This browser has no microphone access." :
+      "The microphone only works over HTTPS: open this page through the Mac's HTTPS address, or by localhost on the Mac.";
+    $("bMic").disabled = true;
+    return false;
+  }
+
+  // Starts listening. Runs from a button press: phones only let a page start audio from a tap.
+  function startMic() {
+    if (!micSecureHelp() || mic) return;
+    var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+    if (ctx.resume) ctx.resume();
+    var id = $("micDev").value;
+    // Echo cancellation, noise suppression and auto gain are made for voices; they eat piano notes.
+    var audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+    if (id) audio.deviceId = { exact: id };
+    $("bMic").disabled = true; $("micHeard").textContent = "Asking for the microphone…";
+    navigator.mediaDevices.getUserMedia({ audio: audio }).then(function (stream) {
+      var track = stream.getAudioTracks()[0];
+      mic = { ctx: ctx, stream: stream, label: track && track.label || "microphone", node: null, sink: null,
+        tracker: Pitch.createTracker({ sampleRate: ctx.sampleRate, sensitivity: Number($("micSens").value) }) };
+      var src = ctx.createMediaStreamSource(stream);
+      // The capture node only runs when it leads to the speakers, so it goes through a silent gain.
+      var sink = ctx.createGain(); sink.gain.value = 0; sink.connect(ctx.destination);
+      mic.sink = sink; mic.src = src;
+      var viaScript = function () {
+        var sp = ctx.createScriptProcessor(1024, 1, 1);
+        sp.onaudioprocess = function (e) { feed(e.inputBuffer.getChannelData(0)); };
+        src.connect(sp); sp.connect(sink); mic.node = sp;
+      };
+      if (ctx.audioWorklet && window.AudioWorkletNode) {
+        ctx.audioWorklet.addModule("/pitch-worklet.js").then(function () {
+          if (!mic) return;
+          var node = new AudioWorkletNode(ctx, "pitch-capture");
+          node.port.onmessage = function (e) { feed(e.data); };
+          src.connect(node); node.connect(sink); mic.node = node;
+        }, viaScript);
+      } else viaScript();
+      $("bMic").disabled = false; $("bMic").textContent = "Stop listening"; $("bMic").className = "";
+      $("micHeard").textContent = "Listening with " + mic.label + ".";
+      remember("pianoMic", id);
+      listMics();
+      postDevice();
+      meter();
+      // A quick level and pitch check the first time.
+      startCheck();
+    }, function (err) {
+      ctx.close && ctx.close();
+      $("bMic").disabled = false;
+      $("micHeard").textContent = (err && err.name === "NotAllowedError" ? "Microphone access was refused: allow it for this site in the browser's settings, then try again." :
+        "Could not open the microphone: " + (err && (err.message || err.name) || err));
+    });
+  }
+
+  function stopMic() {
+    if (!mic) return;
+    sendMic(mic.tracker.flush());
+    mic.stream.getTracks().forEach(function (t) { t.stop(); });
+    try { mic.node && mic.node.disconnect(); mic.src.disconnect(); } catch (e) {}
+    if (mic.ctx.close) mic.ctx.close();
+    mic = null; check = null;
+    $("bMic").textContent = "Start listening"; $("bMic").className = "pri";
+    $("micHeard").textContent = "Not listening."; $("micNote").textContent = "–";
+    $("meterBar").style.width = "0";
+    postDevice();
+  }
+
+  // Microphones by name (names show once the page may use the microphone).
+  function listMics() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    navigator.mediaDevices.enumerateDevices().then(function (all) {
+      var want = remembered("pianoMic"), opts = '<option value="">Default microphone</option>';
+      all.filter(function (d) { return d.kind === "audioinput" && d.deviceId && d.deviceId !== "default"; }).forEach(function (d, i) {
+        opts += '<option value="' + esc(d.deviceId) + '"' + (d.deviceId === want ? " selected" : "") + ">" + esc(d.label || "Microphone " + (i + 1)) + "</option>";
+      });
+      $("micDev").innerHTML = opts;
+    }).catch(function () {});
+  }
+
+  function feed(chunk) {
+    if (!mic) return;
+    var ev = mic.tracker.push(chunk);
+    if (ev.length) sendMic(ev);
+  }
+
+  function sendMic(ev) {
+    var now = performance.now(), out = [];
+    ev.forEach(function (e) {
+      if (e.on) {
+        $("micNote").textContent = P.noteName(e.note);
+        $("micHeard").textContent = "Heard " + P.noteName(e.note) + tuning(e.cents) + ".";
+        if (check) return checkNote(e);
+      }
+      if (now < micMuteUntil) { if (e.on) logNote(true, e.note, e.velocity, "mic, Hear it first, ignored"); return; }
+      // A note off only for the note the TV was sent.
+      if (e.on) micHeld = e.note; else if (e.note !== micHeld) return; else micHeld = -1;
+      out.push({ on: e.on, note: e.note, velocity: e.velocity });
+    });
+    if (out.length) send(out, "mic");
+  }
+
+  // Hear it first plays out loud; the mic would hear it, so it is not sent until the notes end.
+  function muteMicFor(events) {
+    var end = 0;
+    events.forEach(function (e) { end = Math.max(end, e.at + e.dur); });
+    micMuteUntil = performance.now() + P.LISTEN_LEAD_MS + end + 400;
+    if (mic) sendMic(mic.tracker.flush());
+  }
+
+  function tuning(c) {
+    if (c == null) return "";
+    var a = Math.abs(c);
+    return a <= 15 ? ", in tune" : ", " + a + " cents " + (c > 0 ? "sharp" : "flat");
+  }
+
+  // Level meter: the bar is the level from -80 to 0 dBFS, the amber line the gate a note has to pass.
+  function meter() {
+    if (!mic) return;
+    var t = mic.tracker, pct = function (d) { return Math.max(0, Math.min(100, (d + 80) / 80 * 100)); };
+    $("meterBar").style.width = pct(t.level) + "%";
+    $("meterBar").className = t.note >= 0 ? "on" : "";
+    $("meterGate").style.left = pct(t.gate) + "%";
+    if (t.note < 0 && $("micNote").textContent !== "–" && t.level < t.gate) $("micNote").textContent = "–";
+    if (check && check.phase === "quiet" && performance.now() > check.until) {
+      check.phase = "c"; check.until = performance.now() + 20000; check.loud = false;
+      $("micCheck").textContent = "Room noise " + Math.round(t.floor) + " dB. Now play any C (middle C is fine) and let it ring.";
+    }
+    if (check && check.phase === "c") {
+      if (t.level > t.gate) check.loud = true;
+      if (performance.now() > check.until) {
+        $("micCheck").textContent = check.loud ? "Heard sound but no clear note: play one key at a time, firmly. Check again when ready." :
+          "Nothing heard: move the microphone closer to the piano, or set the sensitivity to High, then check again.";
+        check = null;
+      }
+    }
+    requestAnimationFrame(meter);
+  }
+
+  function startCheck() {
+    if (!mic) return;
+    check = { phase: "quiet", until: performance.now() + 1200 };
+    $("micCheck").textContent = "Checking the room: stay quiet for a moment…";
+  }
+
+  function checkNote(e) {
+    if (check.phase !== "c") return;
+    if (e.note % 12 !== 0) {
+      $("micCheck").textContent = "Heard " + P.noteName(e.note) + ", not a C. A C is the white key just left of the two black keys.";
+      return;
+    }
+    // The browser's own input delay, where it says (track latency in Chrome, the context's base latency).
+    var tr = mic.stream.getAudioTracks()[0], set = tr && tr.getSettings ? tr.getSettings() : {};
+    var audioMs = Math.round(((set.latency || 0) + (mic.ctx.baseLatency || 0)) * 1000);
+    var a = Math.abs(e.cents);
+    $("micCheck").textContent = "Heard " + P.noteName(e.note) + (a <= 15 ? ", in tune" : a <= 35 ? ", " + a + " cents " + (e.cents > 0 ? "sharp" : "flat") + " (fine)" :
+      ", " + a + " cents " + (e.cents > 0 ? "sharp" : "flat") + ": the piano is out of tune, wait mode still takes the nearest note") +
+      ". Delay: " + (e.latency + audioMs) + " ms from the key to this page. Ready: play along on the TV.";
+    check = null;
+  }
+
+  // Mic mode works best one hand at a time; offer it while both hands are up.
+  function micTip() {
+    var s = tvState, tip = $("micTip");
+    if (input !== "mic") { tip.dataset.both = ""; return; }
+    var both = s && s.playHand === "both" && s.songHands && s.songHands.length > 1;
+    if (tip.dataset.both === String(both)) return;
+    tip.dataset.both = String(both);
+    tip.innerHTML = "Mic mode is forgiving: the right note name an octave up or down counts, and a chord counts when one of its notes is heard." +
+      (both ? ' Both hands at once are hard to hear apart: <button id="bOneHand" class="pri">Practise the right hand</button>' : "");
+    if (both) $("bOneHand").onclick = function () { control("hand", 0, "right"); };
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-input]"), function (b) {
+    b.onclick = function () { setInput(b.dataset.input); };
+  });
+  $("bMic").onclick = function () { if (mic) stopMic(); else startMic(); };
+  $("bCheck").onclick = function () { if (!mic) startMic(); else startCheck(); };
+  $("micSens").value = remembered("pianoMicSens") || "0";
+  $("micSens").onchange = function () { remember("pianoMicSens", $("micSens").value); if (mic) mic.tracker.sensitivity = Number($("micSens").value); };
+  $("micDev").onchange = function () { remember("pianoMic", $("micDev").value); if (mic) { stopMic(); startMic(); } };
+  // Phones suspend audio in the background; it resumes when the page is back.
+  document.addEventListener("visibilitychange", function () {
+    if (mic && document.visibilityState === "visible" && mic.ctx.state === "suspended") mic.ctx.resume();
+  });
 
   // ---------- hear it first ----------
 
@@ -506,6 +755,8 @@ select.bar{min-width:0}
   loadSongs();
   connect();
   startMidi();
+  setInput(input);
+  listMics();
   wake();
 })();
 </script>

@@ -263,6 +263,12 @@
   // required, and striking one of them while it is due is ignored instead of counted wrong.
   // opts.loop: { from, to } bars: only those bars are played, over and over; a pass with no wrong
   // key is clean, and LOOP_CLEAN clean passes in a row finish the loop.
+  // opts.tolerant (or s.setTolerant()): mic mode, where a microphone hears one note at a time and
+  // may hear it an octave off. Only the top note of each step is waited for (and lit), and the right
+  // note name within an octave of it counts. A microphone hearing a chord mostly hears its bass or
+  // the chord's common root an octave or two lower, so any of the chord's note names, in any octave,
+  // also completes a chord step. The other hand's due notes and the last step's top note ringing on
+  // are ignored instead of counted wrong.
   function createSession(song, opts) {
     opts = opts || {};
     var hand = song.beatsPerBar ? playHand(song, opts.hand) : "both";
@@ -294,21 +300,37 @@
       cleanPasses: 0,
       cleanNeeded: LOOP_CLEAN,
       done: steps.length === 0,
+      tolerant: !!opts.tolerant,
     };
+    s.setTolerant = function (on) { s.tolerant = !!on; };
     s.current = function () { return s.done ? null : steps[s.index]; };
+    // The notes a step needs: all of them, or in mic mode only the top one.
+    function needed(st) { return s.tolerant ? [Math.max.apply(null, st.notes)] : st.notes; }
+    s.needed = function () { var st = s.current(); return st ? needed(st) : []; };
     s.waitingFor = function () {
       var st = s.current();
-      return st ? st.notes.filter(function (n) { return !s.hit[n]; }) : [];
+      return st ? needed(st).filter(function (n) { return !s.hit[n]; }) : [];
     };
     s.accuracy = function () {
       var total = s.correct + s.wrong;
       return total ? s.correct / total : 1;
     };
+    // In mic mode a note matches a wanted one with the same name up to an octave away.
+    function same(a, b) { return a === b || (s.tolerant && Math.abs(a - b) <= 12 && (a - b) % 12 === 0); }
+    function matchIn(note, list) {
+      for (var i = 0; i < list.length; i++) if (list[i] === note) return list[i];
+      for (i = 0; i < list.length; i++) if (same(note, list[i])) return list[i];
+      return -1;
+    }
+    function chordName(note, st) {
+      for (var i = 0; i < st.notes.length; i++) if ((((st.notes[i] - note) % 12) + 12) % 12 === 0) return true;
+      return false;
+    }
     // The other hand's note sounding at the current step (it may be played along without penalty).
     function otherDue(note, st) {
       for (var i = 0; i < other.length; i++) {
         var o = other[i];
-        if (o.note === note && o.start <= st.start + 1e-6 && o.start + o.length > st.start + 1e-6) return true;
+        if (same(o.note, note) && o.start <= st.start + 1e-6 && o.start + o.length > st.start + 1e-6) return true;
       }
       return false;
     }
@@ -316,10 +338,11 @@
     // "pass" ends one time through a loop and starts the next; clean says whether it had no wrong key.
     s.press = function (note) {
       if (s.done) return { result: "ignored" };
-      var st = steps[s.index];
-      if (st.notes.indexOf(note) >= 0) {
-        if (s.hit[note]) return { result: "ignored" };
-        s.hit[note] = true;
+      var st = steps[s.index], top = needed(st), want = matchIn(note, top);
+      if (want < 0 && s.tolerant && st.notes.length > 1 && chordName(note, st)) want = top[0];
+      if (want >= 0) {
+        if (s.hit[want]) return { result: "ignored" };
+        s.hit[want] = true;
         s.correct++; s.streak++;
         if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         s.lastWrong = null;
@@ -334,6 +357,11 @@
         return { result: "pass", clean: clean };
       }
       if (otherDue(note, st)) return { result: "ignored", other: true };
+      if (s.tolerant) {
+        // The note just played still ringing as the next is struck.
+        var prev = s.index > 0 ? steps[s.index - 1] : null;
+        if (prev && same(note, needed(prev)[0])) return { result: "ignored", ringing: true };
+      }
       s.wrong++; s.passWrong++; s.streak = 0;
       s.wrongKeys[note] = (s.wrongKeys[note] || 0) + 1;
       var want = s.waitingFor(), target = want[0];

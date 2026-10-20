@@ -344,4 +344,37 @@ assert(echo.match(false, 64, 2010), "echoed note off");
 assert(echo.match(true, 62, 2130));
 echo.clear(); assert.strictEqual(echo.size(), 0);
 
+// Mic mode (tolerant): only a chord's top note is waited for, the right note name within an octave
+// counts, any of a chord's names completes it, the other hand and the last note ringing on are not
+// mistakes.
+const mic = P.createSession(odeSong, { hand: "both", tolerant: true });
+assert.deepStrictEqual(mic.waitingFor(), [64], "C3 + E4 waits for the top note only");
+assert.strictEqual(mic.press(76).result, "advance", "E5 is E4 an octave up");
+assert.strictEqual(mic.press(52).result, "advance", "E3 is E4 an octave down (the repeated E)");
+assert.strictEqual(mic.press(64).result, "ignored", "the E still ringing while F is due is not a mistake");
+assert.strictEqual(mic.press(40).result, "wrong", "two octaves off is wrong");
+assert.strictEqual(mic.press(66).result, "wrong", "a wrong note is still wrong");
+assert.strictEqual(mic.wrong, 2);
+assert.strictEqual(mic.lastWrong.target, 65, "the hint points at the wanted note");
+assert.strictEqual(mic.press(65).result, "advance");
+// Switching tolerance off mid-song: the full step is wanted again.
+const micChord = P.createSession({ notes: [{ note: 60, start: 0, length: 1 }, { note: 64, start: 0, length: 1 }, { note: 67, start: 0, length: 1 }, { note: 72, start: 1, length: 1 }] }, { tolerant: true });
+assert.deepStrictEqual(micChord.waitingFor(), [67]);
+assert.deepStrictEqual(micChord.needed(), [67], "only the top key lights");
+micChord.setTolerant(false);
+assert.deepStrictEqual(micChord.waitingFor(), [60, 64, 67], "strict again: every chord note");
+micChord.setTolerant(true);
+assert.strictEqual(micChord.press(36).result, "advance", "the chord heard as its root two octaves down");
+assert.strictEqual(micChord.press(60).result, "done", "C4 counts for C5");
+const micTriad = P.createSession({ notes: [{ note: 60, start: 0, length: 1 }, { note: 64, start: 0, length: 1 }, { note: 67, start: 0, length: 1 }] }, { tolerant: true });
+assert.strictEqual(micTriad.press(62).result, "wrong", "a name not in the chord is wrong");
+assert.strictEqual(micTriad.press(76).result, "done", "E5 for the chord's E");
+// One hand in mic mode: the other hand's due note is ignored, also an octave off.
+const micRight = P.createSession(odeSong, { hand: "right", tolerant: true });
+assert.strictEqual(micRight.press(36).result, "ignored", "C2 for the left hand's C3");
+assert.strictEqual(micRight.press(64).result, "advance");
+// Strict sessions are unchanged: an octave off is wrong.
+const strict = P.createSession(odeSong, { hand: "right" });
+assert.strictEqual(strict.press(76).result, "wrong");
+
 console.log("ok");
