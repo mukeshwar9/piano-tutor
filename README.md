@@ -94,7 +94,7 @@ Sheet music: a grand staff across the top of the strip, right hand on the treble
 
 Finger numbers: songs can give each note a finger, 1 (thumb) to 5 (little finger), drawn on each falling note and lit key; the link page's Finger numbers button (or F) hides or shows them. Both shipped songs carry beginner fingering.
 
-Score history: every finished play (a whole song, or a practice loop that reached its clean passes) is saved on the server in `piano-history.json` (the newest 2000 plays are kept): song, hand mode, wait or tempo mode and speed, loop range, accuracy, best streak, wrong keys, duration and date. The TV shows the song's best accuracy and streak, a results card when a song or loop finishes, and a progress screen (the link page's Show progress on the TV button, or S) with every song's best scores. A song is **mastered** when one whole-song play in Both hands at full speed reached 95% accuracy or better.
+Score history: every finished play (a whole song, or a practice loop that reached its clean passes) is saved on the server in `piano-history.json` (the newest 2000 plays are kept): song, hand mode, wait or tempo mode and speed, loop range, accuracy, timing, best streak, wrong keys, duration and date. The TV shows the song's best accuracy and streak, a results card when a song or loop finishes, and a progress screen (the link page's Show progress on the TV button, or S) with every song's best scores. Timing is the share of struck notes within 110 ms of their time (the same green "on time" as tempo mode), plus the average early or late offset in ms (under 15 ms reads as on the beat). It is recorded only in tempo mode, at any speed, since wait mode waits for the player and shows timing as n/a. Missed notes count against accuracy, not timing, and entries saved before timing existed load with no timing. The results card shows it, and the progress screen shows each song's best timing from whole-song tempo plays. A song is **mastered** when one whole-song play in Both hands at full speed reached 95% accuracy or better.
 
 ## Mic mode
 
@@ -146,7 +146,7 @@ The TV can share the screen with another page, such as a dashboard on another se
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history (`piano-history`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

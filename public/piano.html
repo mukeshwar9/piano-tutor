@@ -639,6 +639,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       var sc = scores[sg.id] || sg.score;
       rows += "<tr><td class=" + (sg.id === songId ? "cur" : "") + ">" + esc(sg.title || sg.id) + "</td>" +
         "<td>" + (sc && sc.fullPlays ? P.percentText(sc.bestAccuracy) : "-") + "</td>" +
+        "<td>" + (sc && sc.bestTiming != null ? P.percentText(sc.bestTiming) : "-") + "</td>" +
         "<td>" + (sc && sc.fullPlays ? sc.bestStreak : "-") + "</td>" +
         "<td>" + (sc ? sc.plays : 0) + "</td>" +
         "<td>" + (sc && sc.mastered ? '<span class=badge>★ Mastered</span>' : sc && sc.bestBothAccuracy != null ? "Both hands " + P.percentText(sc.bestBothAccuracy) : sc && sc.fullPlays ? "Try both hands" : "") + "</td></tr>";
@@ -646,11 +647,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var recent = "";
     if (history && history.plays.length) {
       recent = "<div class=recent><b>Recent</b><br>" + history.plays.slice(0, 5).map(function (p) {
-        return esc(p.title || p.song) + " · " + p.hand + " hand" + (p.hand === "both" ? "s" : "") + " · " + p.mode + (p.loop ? " · " + esc(barsText(p.loop)) : "") + " · " + P.percentText(p.accuracy) + " · " + dateText(p.at);
+        return esc(p.title || p.song) + " · " + p.hand + " hand" + (p.hand === "both" ? "s" : "") + " · " + p.mode + (p.loop ? " · " + esc(barsText(p.loop)) : "") + " · " + P.percentText(p.accuracy) + (p.timing ? " · timing " + P.timingText(p.timing) : "") + " · " + dateText(p.at);
       }).join("<br>") + "</div>";
     }
-    $("progress").innerHTML = "<h1>Progress</h1><div class=sub>Mastered: the whole song in both hands at " + P.MASTER_ACCURACY + "% or better. <b>OK</b> or <b>Back</b> closes.</div>" +
-      "<table><tr><th>Song</th><th>Best</th><th>Streak</th><th>Plays</th><th></th></tr>" + rows + "</table>" + recent;
+    $("progress").innerHTML = "<h1>Progress</h1><div class=sub>Mastered: the whole song in both hands at " + P.MASTER_ACCURACY + "% or better. Timing: notes within " + P.TEMPO_ON_MS + " ms of the beat, tempo mode only. <b>OK</b> or <b>Back</b> closes.</div>" +
+      "<table><tr><th>Song</th><th>Best</th><th>Timing</th><th>Streak</th><th>Plays</th><th></th></tr>" + rows + "</table>" + recent;
     $("progress").className = "on";
   }
 
@@ -874,6 +875,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       (p ? " · time <b>" + P.durationText(p.durationMs) + "</b>" : "") + (loop ? " · " + session.passes + " passes" : "")];
     var missed = Object.keys(session.wrongKeys).sort(function (a, b) { return session.wrongKeys[b] - session.wrongKeys[a] || a - b; }).slice(0, 3);
     if (session.tempo) lines.push("Tempo <b>" + session.speed + "%</b> · " + session.onTime + " on time, " + session.early + " early, " + session.late + " late, <b>" + session.missed + " missed</b>");
+    if (session.tempo) {
+      var tm = P.timingSummary(session), tend = tm ? P.tendencyText(tm.meanMs) : "";
+      lines.push(tm ? "Timing <b>" + P.percentText(tm.accuracy) + "</b> on time · " + (tend === "on the beat" ? tend : tend + " on average") : "Timing n/a (no notes struck)");
+    } else lines.push("Timing n/a in wait mode");
     if (missed.length) lines.push("Most missed: " + missed.map(function (n) { return "<b>" + P.noteName(Number(n)) + "</b> ×" + session.wrongKeys[n]; }).join(", "));
     if (r && r.error) lines.push('<span class=warn>Not saved: ' + esc(r.error) + "</span>");
     else if (p && loop) lines.push("Loop plays are saved but do not count towards best scores.");
