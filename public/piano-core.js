@@ -422,7 +422,8 @@
   // clean; LOOP_CLEAN in a row finish it. opts.tolerant (or s.setTolerant()) is mic mode as in wait
   // mode: only the top note of each chord is played and judged, the right note name an octave up or
   // down counts, and the chord's other notes are ignored instead of counted wrong. opts.countIn sets the
-  // count-in beats (default one bar; 0 for none).
+  // count-in beats (default one bar; 0 for none). offsetMsSum is the sum of the signed hit offsets in
+  // ms (negative early), for the mean timing.
   function createTempoSession(song, opts) {
     opts = opts || {};
     var part = partNotes(song, opts), loop = part.loop, other = part.other;
@@ -509,6 +510,7 @@
         if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         if (timing === "on time") s.onTime++; else if (timing === "early") s.early++; else s.late++;
         s.lastTiming = { timing: timing, ms: Math.round(d * beatMs) };
+        s.offsetMsSum += s.lastTiming.ms;
         s.lastWrong = null;
         return { result: "hit", timing: timing, ms: s.lastTiming.ms };
       }
@@ -554,7 +556,7 @@
     };
     s.restart = function () {
       s.judged = {}; s.correct = 0; s.wrong = 0; s.missed = 0; s.onTime = 0; s.early = 0; s.late = 0;
-      s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {};
+      s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {}; s.offsetMsSum = 0;
       s.passes = 0; s.passWrong = 0; s.passMissed = 0; s.cleanPasses = 0;
       s.done = notes.length === 0;
     };
@@ -674,6 +676,49 @@
     };
   }
 
+  // ---------- timing ----------
+
+  // Timing is only measured where the song keeps the clock (tempo mode, any speed); wait mode waits
+  // for the player so it has none. On time is within TEMPO_ON_MS, the same green "on time" the TV
+  // shows. Missed notes count against note accuracy, not timing. meanMs is negative when early on
+  // average.
+  function timingSummary(session) {
+    if (!session || !session.tempo) return null;
+    var hits = session.onTime + session.early + session.late;
+    if (!hits) return null;
+    return {
+      accuracy: Math.round(session.onTime / hits * 1000) / 10,
+      onTime: session.onTime, early: session.early, late: session.late,
+      meanMs: Math.round(session.offsetMsSum / hits),
+    };
+  }
+
+  // A clean timing object from untrusted input, or null.
+  function validTiming(t) {
+    if (!t || typeof t !== "object") return null;
+    var onTime = Math.floor(Number(t.onTime)), early = Math.floor(Number(t.early)), late = Math.floor(Number(t.late));
+    var accuracy = Number(t.accuracy), meanMs = Number(t.meanMs);
+    if (!(onTime >= 0) || !(early >= 0) || !(late >= 0) || !(onTime + early + late > 0)) return null;
+    if (!(accuracy >= 0 && accuracy <= 100) || !isFinite(meanMs)) return null;
+    return {
+      accuracy: Math.round(accuracy * 10) / 10, onTime: onTime, early: early, late: late,
+      meanMs: Math.round(Math.max(-TEMPO_WINDOW_MS, Math.min(TEMPO_WINDOW_MS, meanMs))),
+    };
+  }
+
+  // A mean offset smaller than this (ms) reads as "on the beat" rather than early or late.
+  var TENDENCY_MS = 15;
+  function tendencyText(meanMs) {
+    if (meanMs == null) return "-";
+    if (Math.abs(meanMs) < TENDENCY_MS) return "on the beat";
+    return Math.round(Math.abs(meanMs)) + " ms " + (meanMs < 0 ? "early" : "late");
+  }
+
+  function timingText(t) {
+    if (!t) return "n/a";
+    return percentText(t.accuracy) + " on time \u00b7 " + tendencyText(t.meanMs);
+  }
+
   // ---------- score history ----------
 
   // A full-song play in Both hands at this accuracy (percent) or better counts a song as mastered.
@@ -682,7 +727,7 @@
 
   // The history entry for a finished session: song is the fitted song, extra carries what the page
   // knows (mode, speed, durationMs). Accuracy is a percent with one decimal, wrongKeys maps a wrong
-  // key's name to how often it was struck.
+  // key's name to how often it was struck. timing is null outside tempo mode.
   function playRecord(song, session, extra) {
     extra = extra || {};
     var wrongKeys = {};
@@ -694,6 +739,7 @@
       accuracy: Math.round(session.accuracy() * 1000) / 10, bestStreak: session.bestStreak,
       correct: session.correct, wrong: session.wrong, wrongKeys: wrongKeys,
       durationMs: Math.max(0, Math.round(extra.durationMs || 0)),
+      timing: timingSummary(session),
     };
   }
 
@@ -724,6 +770,7 @@
       loop: loop, accuracy: Math.round(accuracy * 10) / 10, bestStreak: Math.floor(streak),
       correct: Math.floor(correct), wrong: Math.floor(wrong), wrongKeys: wrongKeys,
       durationMs: Math.min(86400000, Math.max(0, Math.round(Number(r.durationMs) || 0))),
+      timing: r.mode === "tempo" ? validTiming(r.timing) : null,
       at: Number(r.at) > 0 ? Math.floor(Number(r.at)) : 0,
     };
   }
@@ -735,11 +782,12 @@
   }
 
   // Best scores per song id from the plays. Only whole-song plays count: a loop of one bar is not
-  // a score. bestAccuracy / bestStreak are over every hand mode; mastered needs a Both hands play.
+  // a score. bestAccuracy / bestStreak / bestTiming (best percent on time, tempo plays only) are over
+  // every hand mode; mastered needs a Both hands play.
   function summarizeHistory(plays) {
     var out = {};
     (plays || []).forEach(function (r) {
-      var e = out[r.song] || (out[r.song] = { plays: 0, fullPlays: 0, bestAccuracy: null, bestStreak: 0, bestBothAccuracy: null, mastered: false, lastAt: 0 });
+      var e = out[r.song] || (out[r.song] = { plays: 0, fullPlays: 0, bestAccuracy: null, bestStreak: 0, bestBothAccuracy: null, bestTiming: null, mastered: false, lastAt: 0 });
       e.plays++;
       e.lastAt = Math.max(e.lastAt, r.at || 0);
       if (r.loop) return;
@@ -747,6 +795,7 @@
       if (e.bestAccuracy == null || r.accuracy > e.bestAccuracy) e.bestAccuracy = r.accuracy;
       if (r.bestStreak > e.bestStreak) e.bestStreak = r.bestStreak;
       if (r.hand === "both" && (e.bestBothAccuracy == null || r.accuracy > e.bestBothAccuracy)) e.bestBothAccuracy = r.accuracy;
+      if (r.timing && (e.bestTiming == null || r.timing.accuracy > e.bestTiming)) e.bestTiming = r.timing.accuracy;
       if (isMasteredPlay(r)) e.mastered = true;
     });
     return out;
@@ -779,6 +828,7 @@
   return {
     stepSong: stepSong,
     MASTER_ACCURACY: MASTER_ACCURACY, playRecord: playRecord, validPlay: validPlay, isMasteredPlay: isMasteredPlay,
+    timingSummary: timingSummary, validTiming: validTiming, timingText: timingText, tendencyText: tendencyText, TENDENCY_MS: TENDENCY_MS,
     summarizeHistory: summarizeHistory, durationText: durationText, percentText: percentText,
     DEFAULT_LOW: DEFAULT_LOW, DEFAULT_HIGH: DEFAULT_HIGH, SCREEN_MM: SCREEN_MM,
     isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,

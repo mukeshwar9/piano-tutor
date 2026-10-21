@@ -24,6 +24,7 @@ assert.deepStrictEqual(rec.wrongKeys, { "C#4": 2 });
 assert.strictEqual(rec.wrong, 2);
 assert.strictEqual(rec.accuracy, Math.round((s.correct / (s.correct + s.wrong)) * 1000) / 10);
 assert.strictEqual(rec.bestStreak, s.bestStreak);
+assert.strictEqual(rec.timing, null, "wait mode has no timing");
 s.restart();
 assert.deepStrictEqual(s.wrongKeys, {});
 
@@ -34,12 +35,33 @@ assert.deepStrictEqual(P.playRecord(song, ls, {}).loop, { from: 1, to: 2 });
 // Validation: clean values, bad input rejected.
 const good = { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.44, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1, bogus: 3, D4: 0 }, durationMs: 1234.6 };
 const v = P.validPlay(good);
-assert.deepStrictEqual(v, { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.4, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1 }, durationMs: 1235, at: 0 });
+assert.deepStrictEqual(v, { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.4, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1 }, durationMs: 1235, timing: null, at: 0 });
 assert.strictEqual(P.validPlay({ ...good, mode: "weird" }).mode, "wait", "unknown mode falls back to wait");
 assert.strictEqual(P.validPlay({ ...good, speed: 0 }).speed, 1);
 for (const bad of [null, "x", { ...good, song: "" }, { ...good, hand: "feet" }, { ...good, accuracy: 101 }, { ...good, accuracy: "x" }, { ...good, loop: { from: 0, to: 1 } }, { ...good, wrong: -1 }]) {
   assert.strictEqual(P.validPlay(bad), null, JSON.stringify(bad));
 }
+
+// Timing: kept for tempo plays, cleaned (accuracy to one decimal, counts floored, meanMs within the window).
+const okTiming = { accuracy: 50, onTime: 1, early: 1, late: 0, meanMs: 0 };
+assert.deepStrictEqual(P.validPlay({ ...good, timing: { accuracy: 96.44, onTime: 7.9, early: 2.2, late: 1.9, meanMs: 999 } }).timing, { accuracy: 96.4, onTime: 7, early: 2, late: 1, meanMs: 300 });
+assert.strictEqual(P.validPlay({ ...good, timing: { accuracy: 80, onTime: 1, early: 0, late: 0, meanMs: -999 } }).timing.meanMs, -300);
+assert.strictEqual(P.validPlay({ ...good, mode: "wait", timing: okTiming }).timing, null, "wait mode drops timing");
+// Bad timing drops the timing only; the play itself is still valid.
+for (const badT of [{ accuracy: 50, onTime: 0, early: 0, late: 0, meanMs: 0 }, { ...okTiming, accuracy: 101 }, "x", { ...okTiming, meanMs: "x" }]) {
+  const p = P.validPlay({ ...good, timing: badT });
+  assert(p, "the play stays valid");
+  assert.strictEqual(p.timing, null, JSON.stringify(badT));
+}
+
+// Tendency and timing text.
+assert.strictEqual(P.tendencyText(null), "-");
+assert.strictEqual(P.tendencyText(0), "on the beat");
+assert.strictEqual(P.tendencyText(-14), "on the beat");
+assert.strictEqual(P.tendencyText(15), "15 ms late");
+assert.strictEqual(P.tendencyText(-15), "15 ms early");
+assert.strictEqual(P.timingText(null), "n/a");
+assert.strictEqual(P.timingText({ accuracy: 96.4, onTime: 7, early: 2, late: 1, meanMs: -20 }), "96.4% on time · 20 ms early");
 
 // Mastered: whole song, both hands, full speed, 95%+.
 const play = (o) => P.validPlay({ ...good, mode: "wait", speed: 1, ...o });
@@ -57,10 +79,22 @@ const sum = P.summarizeHistory([
   play({ song: "a", hand: "both", accuracy: 100, bestStreak: 3, loop: { from: 1, to: 1 }, at: 3 }),
   play({ song: "b", hand: "both", accuracy: 96, bestStreak: 50, at: 4 }),
 ]);
-assert.deepStrictEqual(sum.a, { plays: 3, fullPlays: 2, bestAccuracy: 99, bestStreak: 40, bestBothAccuracy: 90, mastered: false, lastAt: 3 });
+assert.deepStrictEqual(sum.a, { plays: 3, fullPlays: 2, bestAccuracy: 99, bestStreak: 40, bestBothAccuracy: 90, bestTiming: null, mastered: false, lastAt: 3 });
 assert.strictEqual(sum.b.mastered, true);
 assert.strictEqual(sum.b.bestBothAccuracy, 96);
 assert.deepStrictEqual(P.summarizeHistory([]), {});
+
+// bestTiming: the best timing accuracy over whole-song tempo plays; loop plays and wait plays do not count.
+const tempoPlay = (o) => play({ mode: "tempo", speed: 0.75, song: "c", ...o });
+const tsum = P.summarizeHistory([
+  tempoPlay({ accuracy: 90, timing: { accuracy: 80, onTime: 4, early: 1, late: 0, meanMs: -20 }, at: 1 }),
+  tempoPlay({ accuracy: 95, hand: "both", timing: { accuracy: 92.5, onTime: 37, early: 2, late: 1, meanMs: 4 }, at: 2 }),
+  tempoPlay({ accuracy: 99, loop: { from: 1, to: 1 }, timing: { accuracy: 100, onTime: 5, early: 0, late: 0, meanMs: 0 }, at: 3 }),
+  play({ song: "c", hand: "left", accuracy: 60, at: 4 }),
+  tempoPlay({ song: "d", accuracy: 70, timing: null, at: 5 }),
+]);
+assert.strictEqual(tsum.c.bestTiming, 92.5);
+assert.strictEqual(tsum.d.bestTiming, null, "no timing, no best");
 
 assert.strictEqual(P.percentText(98), "98%");
 assert.strictEqual(P.percentText(97.5), "97.5%");
@@ -81,6 +115,13 @@ assert.strictEqual(piano.historySummary(file).a.bestAccuracy, 100);
 assert.deepStrictEqual(fs.readdirSync(dir), ["piano-history.json"], "no temp file left behind");
 fs.writeFileSync(file, JSON.stringify({ plays: [{ nonsense: true }, stored, 7] }));
 assert.deepStrictEqual(piano.readHistory(file), [stored], "invalid entries are dropped");
+// An entry written before timing existed has no timing key: it still loads and summarizes with no best timing.
+const old = { ...good, at: 1700000000000 };
+assert(!("timing" in old), "an old entry has no timing key");
+fs.writeFileSync(file, JSON.stringify({ plays: [old] }));
+const oldLoaded = piano.readHistory(file);
+assert.deepStrictEqual(oldLoaded.map((p) => [p.timing, p.at]), [[null, 1700000000000]]);
+assert.strictEqual(piano.historySummary(file).a.bestTiming, null);
 fs.writeFileSync(file, "{not json");
 assert.deepStrictEqual(piano.readHistory(file), []);
 fs.writeFileSync(file, JSON.stringify({ plays: Array.from({ length: piano.MAX_PLAYS }, (_, i) => ({ ...stored, at: i + 1 })) }));

@@ -411,6 +411,23 @@ const rec = P.validPlay(P.playRecord({ id: "t", title: "t" }, tRec, { mode: "tem
 assert.deepStrictEqual([rec.mode, rec.speed, rec.correct, rec.wrong, rec.accuracy, rec.wrongKeys], ["tempo", 0.75, 0, 2, 0, { "C#4": 2 }]);
 tRec.restart();
 assert.deepStrictEqual(tRec.wrongKeys, {});
+// Timing: each hit's signed offset in ms (negative early) sums into offsetMsSum; timingSummary gives the
+// on-time share and the mean. at(beat, ms) is the time in beats that is ms away from the beat.
+const tt = P.createTempoSession(tSong, { hand: "right", speed: 100 });
+const at = (beat, ms) => (beat * tt.beatMs + ms) / tt.beatMs;
+tt.press(60, at(0, 50)); tt.press(62, at(1, -200)); tt.press(64, at(2, 200)); tt.press(65, at(3, 250));
+assert.deepStrictEqual([tt.onTime, tt.early, tt.late], [1, 1, 2]);
+near(tt.offsetMsSum, 300, "50 - 200 + 200 + 250");
+assert.deepStrictEqual(P.timingSummary(tt), { accuracy: 25, onTime: 1, early: 1, late: 2, meanMs: 75 });
+tt.restart();
+assert.deepStrictEqual([tt.offsetMsSum, P.timingSummary(tt)], [0, null]);
+// Wait mode has no clock, so no timing.
+assert.strictEqual(P.timingSummary(P.createSession(tSong, { hand: "right" })), null);
+// A finished tempo play at 75% carries its timing into the record: 40 ms on time, 150 ms early.
+const tr = P.createTempoSession(tSong, { hand: "right", speed: 75 });
+const at75 = (beat, ms) => (beat * tr.beatMs + ms) / tr.beatMs;
+tr.press(60, at75(0, 40)); tr.press(62, at75(1, -150)); tr.tick(9);
+assert.deepStrictEqual(P.playRecord(tSong, tr, { mode: "tempo", speed: 0.75 }).timing, { accuracy: 50, onTime: 1, early: 1, late: 0, meanMs: -55 });
 // Mic mode in tempo mode: only a chord's top note is judged, the right name an octave away counts,
 // and the chord's lower notes are ignored instead of counted wrong.
 const chordSong = P.normalizeSong({ title: "c", bpm: 60, notes: [["C4", 0, 1], ["E4", 0, 1], ["G4", 0, 1], ["D4", 1, 1]] }).song;
