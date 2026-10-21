@@ -73,7 +73,7 @@ On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; let
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
-- F: finger numbers on / off. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. These have no free remote key; the link page has the same controls.
+- F: finger numbers on / off. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
 
@@ -87,6 +87,8 @@ Hands and practice loop:
 Hear it first: Rewind on the remote (or P, or the link page's Hear it first button) makes the keyboard play the bar being practised, or the whole loop while one runs, at the song's tempo and for the chosen hand mode. The link page queues every note on the keyboard's Web MIDI output with its own timestamp (channel 1, velocity 80), so the timing holds in a background tab. The TV shows a green "Listen" badge, runs the notes down at tempo and lights each key in its hand's colour as it sounds; afterwards the song is back where it was waiting. Keys arriving while it plays (and for 250 ms after) are not counted, and the link page drops anything the keyboard sends back that matches a note it was just told to play (local echo or MIDI thru). Pressing it again stops it. Without a MIDI output the TV still lights the keys.
 
 Tempo mode: the link page's Wait mode / Tempo mode buttons (or T) choose how the song moves, remembered by the TV browser. In tempo mode the song does not wait: after a one-bar count-in (a big 1 2 3 4 on the TV) the notes fall at the song's tempo scaled by the link page's speed slider, 50% to 100% in steps of 5 (75% to start, also remembered). Each note is judged by when it is struck: within 110 ms of its time it is on time (green), within 300 ms early or late (amber), and a note not struck by then is missed (dark red). A key far from any note's time is wrong, with the same hint as wait mode. Hand modes and the practice loop work as in wait mode, with a count-in before every pass; a pass is clean with no missed note and no wrong key.
+
+Metronome, count-in and speed ramp: the link page's Metronome button (or K) clicks every beat in tempo mode, with the first beat of each bar accented, through the TV's speakers (Web Audio). The clicks follow the song's tempo times the speed, and have their own volume slider. The count-in (on by default; the Count-in button or N) is the one bar of clicks and the big 1 2 3 4 before every start and every loop pass; with it off the notes start at once. The speed ramp (the Speed ramp button or U, with a target slider, 100% by default) works while a practice loop runs in tempo mode: each clean pass raises the speed by 5% up to the target, and a pass with a miss or wrong key holds it. The TV shows the ramp in the mode line and the loop box ("ramp 80% → 100%"). A raise starts the clean count over, so the loop finishes after 3 clean passes at the target, and the ramp starts from the speed slider each time the loop starts. The TV browser remembers the metronome, count-in and ramp settings. Wait mode has no clicks: it waits for keys, so there is no beat to follow.
 
 Sheet music: a grand staff across the top of the strip, right hand on the treble staff and left hand on the bass staff, 2 to 4 bars wide, drawn with VexFlow from the same song data. The step being waited for is amber with an amber playhead, steps played turn green, or red after a wrong key, and the hand not being practised is dimmed. Bar numbers are the ones the practice loop uses and the loop's bars are shaded. Three views, remembered by the TV browser: Falling notes, Both (the default) and Sheet music; switch with the link page's view buttons or V. The key signature comes from the song's `key` or the major key that fits the notes best, the time signature from `beatsPerBar`, and note starts and ends are snapped to sixteenths so MIDI imports come out readable.
 
@@ -137,14 +139,14 @@ The TV can share the screen with another page, such as a dashboard on another se
 ## API
 
 - `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
-- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
+- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
 - `GET /api/piano/songs[/<id>]`, `POST /api/piano/upload?name=<file name>`, `POST /api/piano/import`.
 - `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
 - `POST /api/switch`, `GET /api/config`, `GET /api/debug` (viewport beacon, logged).
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history (`piano-history`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history (`piano-history`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

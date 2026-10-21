@@ -30,7 +30,7 @@ button.sel{background:#2a3a55;border-color:var(--blue)}
 #bRight.sel{border-color:#8cc6ff;color:#8cc6ff}#bLeft.sel{border-color:#ff9ff0;color:#ff9ff0}
 select.bar{min-width:0}
 input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
-#speedVal{font-weight:800;min-width:48px;text-align:right}
+#speedVal,#clickVolVal,#rampTargetVal{font-weight:800;min-width:48px;text-align:right}
 #play .rh{color:#8cc6ff;font-weight:800}#play .lh{color:#ff9ff0;font-weight:800}
 #play{font-size:15px;color:var(--txt2);line-height:1.6}
 #play b{color:var(--txt)}
@@ -129,6 +129,16 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     <input type="range" id="speed" min="50" max="100" step="5" value="75" aria-label="Tempo mode speed"><span id="speedVal">75%</span>
   </div>
   <div class="sub" id="tempoStatus" style="margin-top:8px">Wait mode waits for your keys. Tempo mode keeps time at the speed on the slider (50–100% of the song's tempo) after a one-bar count-in, and judges each note on time, early, late or missed. On a keyboard at the TV: T, and - / = for the speed.</div>
+  <div class="btns" style="margin-top:8px;align-items:center">
+    <button id="bMetronome">Metronome</button>
+    <input type="range" id="clickVol" min="0" max="100" step="5" value="60" aria-label="Metronome volume"><span id="clickVolVal">60%</span>
+    <button id="bCountIn">Count-in</button>
+  </div>
+  <div class="btns" style="margin-top:8px;align-items:center">
+    <button id="bRamp">Speed ramp</button><span class="sub">to</span>
+    <input type="range" id="rampTarget" min="50" max="100" step="5" value="100" aria-label="Speed ramp target"><span id="rampTargetVal">100%</span>
+  </div>
+  <div class="sub" id="rampStatus" style="margin-top:8px">In tempo mode the metronome clicks every beat (accent on the first beat of a bar) and the count-in clicks one bar before every start. With a loop running and the speed ramp on, each clean pass raises the speed by 5% up to the target and a mistake holds it. On a keyboard at the TV: K, N and U.</div>
   <div class="btns" style="margin-top:8px">
     <button id="bListen" class="pri">Hear it first</button><button id="bFingers">Finger numbers</button>
   </div>
@@ -366,6 +376,15 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     if (s.speed && !dragging) { $("speed").value = s.speed; $("speedVal").textContent = s.speed + "%"; }
     $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
     $("bFingers").className = s.fingers === false ? "" : "sel";
+    $("bMetronome").textContent = s.metronome ? "Metronome: on" : "Metronome: off";
+    $("bMetronome").className = s.metronome ? "sel" : "";
+    $("bCountIn").textContent = s.countInOn ? "Count-in: on" : "Count-in: off";
+    $("bCountIn").className = s.countInOn ? "sel" : "";
+    $("bRamp").textContent = s.ramp ? "Speed ramp: on" : "Speed ramp: off";
+    $("bRamp").className = s.ramp ? "sel" : "";
+    if (typeof s.clickVolume === "number" && !clickDragging) { $("clickVol").value = s.clickVolume; $("clickVolVal").textContent = s.clickVolume + "%"; }
+    if (s.rampTarget && !rampDragging) { $("rampTarget").value = s.rampTarget; $("rampTargetVal").textContent = s.rampTarget + "%"; }
+    $("rampStatus").textContent = s.ramp && s.loop && s.tempo ? "Ramp: " + s.rampSpeed + "% \u2192 " + s.rampTarget + "%" : rampStatusText;
     Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
     if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
     listenShown = !!s.listening;
@@ -759,9 +778,18 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     b.onclick = function () { control("tempo", 0, b.dataset.tempo); };
   });
   var dragging = false;
+  var clickDragging = false, rampDragging = false;
+  var rampStatusText = $("rampStatus").textContent;
   $("speed").oninput = function () { dragging = true; $("speedVal").textContent = $("speed").value + "%"; };
   $("speed").onchange = function () { dragging = false; control("speed", 0, $("speed").value); };
   $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
+  $("bMetronome").onclick = function () { control("metronome", 0, tvState && tvState.metronome ? "off" : "on"); };
+  $("bCountIn").onclick = function () { control("countin", 0, tvState && tvState.countInOn ? "off" : "on"); };
+  $("bRamp").onclick = function () { control("ramp", 0, tvState && tvState.ramp ? "off" : "on"); };
+  $("clickVol").oninput = function () { clickDragging = true; $("clickVolVal").textContent = $("clickVol").value + "%"; };
+  $("clickVol").onchange = function () { clickDragging = false; control("metronomeVolume", 0, $("clickVol").value); };
+  $("rampTarget").oninput = function () { rampDragging = true; $("rampTargetVal").textContent = $("rampTarget").value + "%"; };
+  $("rampTarget").onchange = function () { rampDragging = false; control("rampTarget", 0, $("rampTarget").value); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-px]"), function (b) {
     b.onclick = function () { control("nudge", Number(b.dataset.px)); };
   });
