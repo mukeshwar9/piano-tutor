@@ -11,6 +11,7 @@ const path = require("path");
 const piano = require("./piano.js");
 const tvSwitch = require("./public/switch.js");
 const bulbLight = require("./bulb.js");
+const lightColor = require("./light.js");
 
 const ROOT = __dirname;
 
@@ -34,17 +35,21 @@ const config = loadConfig();
 
 // ---------- room light ----------
 
-// The switch is saved next to the calibration; until it has been used, config.json's bulb.enabled
-// (default on) decides.
-function readLightEnabled() {
-  try { const v = JSON.parse(fs.readFileSync(config.pianoLight, "utf8")); if (typeof v.enabled === "boolean") return v.enabled; } catch {}
-  return config.bulb.enabled !== false;
+// The switch and the palette are saved next to the calibration; until they have been used,
+// config.json's bulb.enabled (default on) and bulb.palette (default spectrum) decide.
+function readLight() {
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(config.pianoLight, "utf8")) || {}; } catch {}
+  const palette = [saved.palette, config.bulb.palette].find((p) => typeof p === "string" && lightColor.PALETTES[p]) || lightColor.DEFAULT_PALETTE;
+  return { enabled: typeof saved.enabled === "boolean" ? saved.enabled : config.bulb.enabled !== false, palette };
 }
+const lightSaved = readLight();
 const bulb = bulbLight.createBulb({
   host: typeof config.bulb.host === "string" ? config.bulb.host.trim() : "",
   port: Number(config.bulb.port) || undefined,
   transportKind: config.bulb.transport === "udp" || config.bulb.transport === "nc" ? config.bulb.transport : undefined,
-  enabled: readLightEnabled(),
+  enabled: lightSaved.enabled,
+  palette: lightSaved.palette,
   onChange: (info) => broadcast("light", info),
 });
 
@@ -188,10 +193,15 @@ async function pianoPost(url, req, res) {
     return json(res, 200, { ok: true, play, score, previous: before });
   }
   if (url === "/api/piano/light") {
-    // { enabled: true | false }: the room light's switch. Saved, so it survives a restart.
-    if (typeof body.enabled !== "boolean") return json(res, 400, { error: "enabled must be true or false" });
-    const info = bulb.setEnabled(body.enabled);
-    try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled }) + "\n"); } catch {}
+    // { enabled?: true | false, palette?: "spectrum" | ... }: the room light's switch and palette.
+    // Saved, so they survive a restart.
+    const hasEnabled = body.enabled !== undefined, hasPalette = body.palette !== undefined;
+    if (!hasEnabled && !hasPalette) return json(res, 400, { error: "enabled or palette is required" });
+    if (hasEnabled && typeof body.enabled !== "boolean") return json(res, 400, { error: "enabled must be true or false" });
+    if (hasPalette && !lightColor.PALETTES[body.palette]) return json(res, 400, { error: "unknown palette" });
+    if (hasPalette) bulb.setPalette(body.palette);
+    const info = hasEnabled ? bulb.setEnabled(body.enabled) : bulb.info();
+    try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled, palette: info.palette }) + "\n"); } catch {}
     return json(res, 200, info);
   }
   if (url === "/api/piano/calibration") {

@@ -2,28 +2,46 @@
 // Colour for the room light: turns the stream of played notes into one slowly moving colour. Pure
 // logic, no network and no clock of its own (every call is given `now` in ms), so it is easy to test.
 //
-// The look: recently played notes are remembered per pitch class and fade out over a few seconds, so
-// chords blend instead of flipping. Pitch classes sit around the hue circle in fifths (C, G, D, ...),
-// so harmonically close notes get close hues. The colour that is shown never jumps to the target: it
-// eases towards it along the shortest way round the hue circle, and a hard cap limits how far hue,
-// saturation and brightness may move in one tick. A few seconds of silence fade it to a calm warm
-// glow. Every constant below can be overridden with createLight({ ... }).
+// The look: recently played notes are remembered per pitch class and fade out over a couple of
+// seconds, so chords blend instead of flipping. Each pitch class has a place on its palette (a full
+// colour wheel or an arc of it); notes a fifth apart sit visibly apart, but the colour that is shown
+// never jumps to the target: it eases along the shortest way round the hue circle, and a hard cap
+// limits how far hue, saturation and brightness may move in one tick. The register (low to high on the
+// keyboard) shifts hue and brightness a little and, with how many notes sound together, drives
+// saturation. A few seconds of silence fade it to the palette's calm idle glow. Every constant below
+// can be overridden with createLight({ ... }).
+
+// Palettes: `wheel` spreads the 12 pitch classes over the whole hue circle; otherwise they spread
+// over the arc from hue a to hue b (b may be below a: the arc then runs backwards, through red).
+// `sat` is the saturation range in percent, `idle` the colour it fades to in silence.
+const PALETTES = {
+  spectrum: { label: "Spectrum", wheel: true, arc: [0, 330], sat: [55, 100], idle: { h: 28, s: 55, b: 12 } },
+  aurora: { label: "Aurora", arc: [125, 285], sat: [55, 100], idle: { h: 165, s: 60, b: 12 } },
+  sunset: { label: "Sunset", arc: [45, -60], sat: [55, 100], idle: { h: 12, s: 70, b: 12 } },
+  ocean: { label: "Ocean", arc: [160, 245], sat: [55, 100], idle: { h: 205, s: 60, b: 12 } },
+  warm: { label: "Warm", arc: [10, 60], sat: [50, 75], idle: { h: 28, s: 60, b: 12 } },
+};
+const DEFAULT_PALETTE = "spectrum";
 
 const DEFAULTS = {
+  palette: DEFAULT_PALETTE,
   tickMs: 125,            // intended step length; the caps below are per tick and scale with the real step
-  energyTauMs: 2500,      // a played note's weight decays with this time constant
+  energyTauMs: 1500,      // a played note's weight decays with this time constant
   noteWeight: 1,          // weight one note adds to its pitch class
   energyCap: 3,           // most weight one pitch class can hold (a held-down run cannot saturate it)
+  mixPower: 2,            // the mix weighs each pitch class by its weight to this power: the newest notes lead
   activityScale: 1.5,     // total weight at which the colour is about two thirds of the way to "busy"
-  hueOffset: 20,          // hue of C in degrees (the circle of fifths is laid out from here)
-  satMin: 50, satMax: 70, // saturation percent: moderate, never a harsh pure colour
+  polyNotes: 4,           // pitch classes sounding together at which the chord term of saturation is full
+  satTauMs: 1500,         // low-pass time constant for the saturation target
+  regLow: 36, regHigh: 96,// the register range (MIDI notes) mapped to 0..1
+  regHue: 60,             // degrees the register may shift hue (halved on an arc palette)
+  regBri: 8,              // brightness points the register may shift (high notes brighter)
   briMin: 18, briMax: 65, // brightness percent while playing; velocity moves it by a few points only
-  velBri: 12,             // brightness points the (low-passed) velocity may add
+  velBri: 10,             // brightness points the (low-passed) velocity may add
   velTauMs: 1800,         // low-pass time constant for velocity
-  smoothTauMs: 900,       // easing time constant towards the target while playing
+  smoothTauMs: 600,       // easing time constant towards the target while playing
   idleAfterMs: 4000,      // silence before the fade to the idle glow begins
   idleTauMs: 2500,        // easing time constant of the fade to idle
-  idle: { h: 28, s: 60, b: 12 }, // calm warm amber at low brightness
   capHue: 6,              // degrees per tick, at most
   capSat: 3,              // saturation points per tick, at most
   capBri: 2.5,            // brightness points per tick, at most (20 per second)
@@ -40,11 +58,15 @@ function hueDelta(a, b) {
   return d;
 }
 
-// Position of a pitch class on the circle of fifths (C = 0, G = 1, D = 2, ...), 12 steps round.
-const fifthsPosition = (pc) => (((pc % 12) + 12) * 7) % 12;
-// Hue in degrees for a MIDI note: neighbours on the circle of fifths are 30 degrees apart.
-function pitchHue(note, hueOffset = DEFAULTS.hueOffset) {
-  return wrap(hueOffset + fifthsPosition(note) * 30);
+// Where a pitch class sits on its palette, 0..1: in pitch order (C lowest, B highest), so a scale or a
+// melody moving by steps walks along the palette in one direction, and a fifth is a visibly different
+// colour (7 of 11 steps away). The twelve are all distinct.
+const paletteT = (note) => (((note % 12) + 12) % 12) / 11;
+const paletteOf = (name) => PALETTES[name] || PALETTES[DEFAULT_PALETTE];
+const hueAt = (pal, t) => wrap(pal.arc[0] + (pal.arc[1] - pal.arc[0]) * t);
+// Hue in degrees for a MIDI note in a palette (the register shift is left out).
+function pitchHue(note, palette = DEFAULT_PALETTE) {
+  return hueAt(paletteOf(palette), paletteT(note));
 }
 
 // h in degrees, s and v in 0..1 -> [r, g, b] in 0..255.
@@ -69,16 +91,27 @@ function ease(cur, target, rate, cap) {
 }
 
 function createLight(overrides) {
-  const o = { ...DEFAULTS, ...overrides, idle: { ...DEFAULTS.idle, ...(overrides && overrides.idle) } };
+  const o = { ...DEFAULTS, ...overrides };
+  let pal = paletteOf(o.palette), palName = PALETTES[o.palette] ? o.palette : DEFAULT_PALETTE;
+  const idleOf = () => ({ ...pal.idle, ...(overrides && overrides.idle) });
   const energy = new Array(12).fill(0);
-  const cur = { h: o.idle.h, s: o.idle.s, b: o.idle.b };
-  let lastStep = null, lastNoteAt = -Infinity, vel = 0, velTarget = 0;
+  const cur = { h: idleOf().h, s: idleOf().s, b: idleOf().b };
+  let lastStep = null, lastNoteAt = -Infinity, vel = 0, velTarget = 0, satLP = pal.sat[0];
+  let noteMass = 0, noteSum = 0; // decaying weight and weight x note: the mean register
 
   function noteOn(note, velocity, now) {
     const pc = ((note % 12) + 12) % 12;
     energy[pc] = Math.min(o.energyCap, energy[pc] + o.noteWeight);
+    noteMass += o.noteWeight; noteSum += o.noteWeight * note;
     velTarget = clamp((Number(velocity) || 0) / 127, 0, 1);
     lastNoteAt = now;
+  }
+
+  // Switch palette: the shown colour eases over to the new one like any other change.
+  function setPalette(name) {
+    if (!PALETTES[name]) return false;
+    palName = name; pal = PALETTES[name];
+    return true;
   }
 
   // Start the shown colour from where the bulb already is, so taking control does not jump.
@@ -96,28 +129,47 @@ function createLight(overrides) {
 
     const decay = Math.exp(-dt * 1000 / o.energyTauMs);
     for (let i = 0; i < 12; i++) energy[i] *= decay;
+    noteMass *= decay; noteSum *= decay;
     vel += (velTarget - vel) * (1 - Math.exp(-dt * 1000 / o.velTauMs));
 
     const total = energy.reduce((a, b) => a + b, 0);
     const activity = 1 - Math.exp(-total / o.activityScale);
     const silent = now - lastNoteAt > o.idleAfterMs;
+    const idle = idleOf();
 
     let target;
     if (silent || total < 0.02) {
-      target = { ...o.idle };
+      target = { ...idle };
+      satLP = idle.s;
     } else {
-      // Weighted circular mean of the remembered pitch classes' hues.
-      let x = 0, y = 0;
-      for (let pc = 0; pc < 12; pc++) {
-        const a = pitchHue(pc, o.hueOffset) * Math.PI / 180;
-        x += energy[pc] * Math.cos(a); y += energy[pc] * Math.sin(a);
+      // Weighted mean of the remembered pitch classes' places on the palette: a circular mean on the
+      // wheel, a plain one along an arc. Notes spread evenly round the wheel cancel out; the hue then
+      // simply stays where it is.
+      const mixTotal = energy.reduce((a, e) => a + Math.pow(e, o.mixPower), 0);
+      let base;
+      if (pal.wheel) {
+        let x = 0, y = 0;
+        for (let pc = 0; pc < 12; pc++) {
+          const a = hueAt(pal, paletteT(pc)) * Math.PI / 180;
+          const w = Math.pow(energy[pc], o.mixPower);
+          x += w * Math.cos(a); y += w * Math.sin(a);
+        }
+        base = Math.hypot(x, y) < 1e-3 * mixTotal ? cur.h : wrap(Math.atan2(y, x) * 180 / Math.PI);
+      } else {
+        let t = 0;
+        for (let pc = 0; pc < 12; pc++) t += Math.pow(energy[pc], o.mixPower) * paletteT(pc);
+        base = hueAt(pal, t / mixTotal);
       }
-      // Notes spread evenly round the circle cancel out; the hue then simply stays where it is.
-      const h = Math.hypot(x, y) < 1e-3 * total ? cur.h : wrap(Math.atan2(y, x) * 180 / Math.PI);
+      // The register: low notes lean one way, high notes the other, a little, in hue and brightness,
+      // and extremes of the keyboard and fuller chords are more saturated.
+      const reg = noteMass > 1e-6 ? clamp((noteSum / noteMass - o.regLow) / (o.regHigh - o.regLow), 0, 1) : 0.5;
+      const poly = clamp((energy.filter((e) => e > 0.3).length - 1) / (o.polyNotes - 1), 0, 1);
+      const satGoal = pal.sat[0] + (pal.sat[1] - pal.sat[0]) * clamp(0.35 + 0.35 * Math.abs(reg - 0.5) * 2 + 0.3 * poly + 0.2 * activity, 0, 1);
+      satLP += (satGoal - satLP) * (1 - Math.exp(-dt * 1000 / o.satTauMs));
       target = {
-        h,
-        s: o.satMin + (o.satMax - o.satMin) * activity,
-        b: clamp(o.briMin + (o.briMax - o.briMin - o.velBri) * activity + o.velBri * vel, o.briMin, o.briMax),
+        h: wrap(base + (reg - 0.5) * o.regHue * (pal.wheel ? 1 : 0.5)),
+        s: clamp(satLP, pal.sat[0], pal.sat[1]),
+        b: clamp(o.briMin + (o.briMax - o.briMin - o.velBri - o.regBri) * activity + o.velBri * vel + o.regBri * reg, o.briMin, o.briMax),
       };
     }
 
@@ -133,7 +185,12 @@ function createLight(overrides) {
     return { h: cur.h, s: cur.s, b: cur.b, rgb: hsvToRgb(cur.h, cur.s / 100, 1), dimming, silent };
   }
 
-  return { noteOn, seed, step, get lastNoteAt() { return lastNoteAt; }, options: o };
+  return {
+    noteOn, seed, step, setPalette, idle: idleOf,
+    get palette() { return palName; },
+    get lastNoteAt() { return lastNoteAt; },
+    options: o,
+  };
 }
 
 // Whether the bulb needs a new command: first one, or a colour or brightness step that matters.
@@ -143,4 +200,4 @@ function changedEnough(last, next) {
   return d >= 3 || Math.abs(last.dimming - next.dimming) >= 1;
 }
 
-module.exports = { DEFAULTS, createLight, pitchHue, fifthsPosition, hsvToRgb, rgbToHsv, hueDelta, changedEnough };
+module.exports = { DEFAULTS, PALETTES, DEFAULT_PALETTE, createLight, pitchHue, paletteT, hsvToRgb, rgbToHsv, hueDelta, changedEnough };

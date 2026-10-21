@@ -745,7 +745,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
   // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
-  // between falling notes, sheet music and both, B turns the room light (the bulb) on or off. On a keyboard only (the remote has no free key), T
+  // between falling notes, sheet music and both, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
   // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
   // speed ramp.
   document.addEventListener("keydown", function (e) {
@@ -765,6 +765,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
     else if ((k === "b" || k === "B") && mode === "play") { if (!e.repeat) toggleLight(); }
+    else if ((k === "o" || k === "O") && mode === "play") { if (!e.repeat) nextPalette(); }
     else if ((k === "t" || k === "T") && mode === "play") { if (!e.repeat) setTempo(""); }
     else if ((k === "k" || k === "K") && mode === "play") { if (!e.repeat) setMetronome(""); }
     else if ((k === "n" || k === "N") && mode === "play") { if (!e.repeat) setCountIn(""); }
@@ -811,14 +812,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (!light) return "";
     if (light.status === "no-bulb") return "Light <b class=bad>no bulb configured</b>";
     var st = { off: "off", searching: "looking for the bulb…", "not-found": "<b class=bad>bulb not found</b>", ready: "<b class=ok>on</b>", active: "<b class=ok>on</b>" }[light.status];
-    return '<span id="lightSw" role="switch" aria-checked="' + light.enabled + '" style="cursor:pointer">Light ' + (light.enabled ? (light.status === "ready" || light.status === "active" ? st : "on, " + st) : "off") + " <small>(B)</small></span>";
+    return '<span id="lightSw" role="switch" aria-checked="' + light.enabled + '" style="cursor:pointer">Light ' + (light.enabled ? (light.status === "ready" || light.status === "active" ? st : "on, " + st) : "off") + " <small>(B)</small></span>" +
+      (light.enabled ? ' · <span id="lightPal" style="cursor:pointer">' + palName(light.palette) + " <small>(O)</small></span>" : "");
   }
-  function toggleLight() {
+  function palName(n) { return n ? n.charAt(0).toUpperCase() + n.slice(1) : ""; }
+  function toggleLight() { postLight({ enabled: !light.enabled }); }
+  // Next palette (O): Spectrum, Aurora, Sunset, Ocean, Warm, and round again.
+  function nextPalette() { if (light && light.palettes) postLight({ palette: light.palettes[(light.palettes.indexOf(light.palette) + 1) % light.palettes.length] }); }
+  function postLight(body) {
     if (!light || light.status === "no-bulb") return;
-    fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !light.enabled }) })
+    fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) { light = d; status(); } }).catch(function () {});
   }
-  document.addEventListener("click", function (e) { if (e.target.closest && e.target.closest("#lightSw")) toggleLight(); });
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    if (e.target.closest("#lightSw")) toggleLight(); else if (e.target.closest("#lightPal")) nextPalette();
+  });
 
   function status() {
     var s = [];

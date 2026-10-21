@@ -133,7 +133,7 @@ function createBulb(opts) {
   const o = { ...DEFAULTS, ...opts };
   const now = o.now || Date.now;
   const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); t.unref && t.unref(); });
-  const color = light.createLight(o.light);
+  const color = light.createLight({ ...o.light, palette: o.palette });
   const host = o.host || "";
   const transport = host ? (o.transport || defaultTransport(host, o.port, o.transportKind)) : null;
 
@@ -149,7 +149,7 @@ function createBulb(opts) {
   const status = () => !host ? "no-bulb" : !enabled ? "off"
     : reachable ? (controlling ? "active" : "ready")
     : failed ? "not-found" : "searching";
-  const info = () => ({ enabled, configured: !!host, status: status() });
+  const info = () => ({ enabled, configured: !!host, status: status(), palette: color.palette, palettes: Object.keys(light.PALETTES) });
   function report() {
     const s = JSON.stringify(info());
     if (s !== reported) { reported = s; if (o.onChange) { try { o.onChange(info()); } catch {} } }
@@ -172,9 +172,9 @@ function createBulb(opts) {
       const hsv = light.rgbToHsv(p.r, p.g, p.b);
       color.seed(hsv.h, hsv.s * 100, p.dimming != null ? p.dimming : 50);
     } else if (p.state) {
-      color.seed(o.light && o.light.idle ? o.light.idle.h : light.DEFAULTS.idle.h, light.DEFAULTS.idle.s, p.dimming != null ? p.dimming : 50);
+      color.seed(color.idle().h, color.idle().s, p.dimming != null ? p.dimming : 50);
     } else {
-      color.seed(light.DEFAULTS.idle.h, light.DEFAULTS.idle.s, light.DEFAULTS.minDimming);
+      color.seed(color.idle().h, color.idle().s, light.DEFAULTS.minDimming);
     }
   }
 
@@ -239,6 +239,13 @@ function createBulb(opts) {
     return info();
   }
 
+  // Choose the palette; false for an unknown name. The colour eases over, nothing jumps.
+  function setPalette(name) {
+    if (!color.setPalette(name)) return false;
+    report();
+    return true;
+  }
+
   function start() {
     if (!transport || timer) return;
     timer = setInterval(() => { try { tick(); } catch {} }, o.tickMs);
@@ -253,7 +260,7 @@ function createBulb(opts) {
     if (transport && transport.close) schedule(() => transport.close(), Math.max(0, ...o.restoreRepeatMs) + 100);
   }
 
-  return { noteOn, tick, setEnabled, start, stop, info, get enabled() { return enabled; } };
+  return { noteOn, tick, setEnabled, setPalette, start, stop, info, get enabled() { return enabled; } };
 }
 
 module.exports = { createBulb, restoreParams, udpTransport, ncTransport, jsonSplitter, DEFAULTS, WIZ_PORT };

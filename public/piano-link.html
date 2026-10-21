@@ -93,9 +93,10 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   <div class="lbl">Room light</div>
   <div class="btns" style="align-items:center">
     <button id="bLight" role="switch" aria-checked="true">Light: on</button>
+    <select id="lightPalette" aria-label="Palette"></select>
     <span class="sub" id="lightStatus"></span>
   </div>
-  <div class="sub" style="margin-top:8px">The bulb follows what you play: slow, soft colours that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
+  <div class="sub" style="margin-top:8px">The bulb follows what you play: slow colours, from a palette you choose, that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
 </div>
 
 <div class="card">
@@ -318,15 +319,25 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   $("drop").addEventListener("drop", function (e) { e.preventDefault(); $("drop").className = "card"; upload(e.dataTransfer.files[0]); });
   function markSong() { if (tvState && tvState.songId) $("songs").value = tvState.songId; }
 
-  var lightOn = true;
+  var lightOn = true, lightPalettes = "";
   function showLight(l) {
     lightOn = l.enabled;
     $("bLight").textContent = "Light: " + (l.enabled ? "on" : "off");
     $("bLight").setAttribute("aria-checked", l.enabled);
     $("bLight").className = l.enabled ? "pri" : "";
     $("bLight").disabled = l.status === "no-bulb";
+    if (l.palettes && lightPalettes !== l.palettes.join()) {
+      lightPalettes = l.palettes.join();
+      $("lightPalette").innerHTML = l.palettes.map(function (n) { return '<option value="' + n + '">' + n.charAt(0).toUpperCase() + n.slice(1) + "</option>"; }).join("");
+    }
+    if (l.palette) $("lightPalette").value = l.palette;
+    $("lightPalette").disabled = l.status === "no-bulb";
     $("lightStatus").textContent = l.status === "no-bulb" ? "No bulb configured: add a bulb host to config.json" : !l.enabled ? "Off, the bulb is left as it was" : { searching: "Looking for the bulb…", "not-found": "Bulb not found (retrying quietly)", ready: "Bulb found, waiting for you to play", active: "Following your playing" }[l.status] || "";
   }
+  $("lightPalette").onchange = function () {
+    fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ palette: $("lightPalette").value }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) showLight(d); }).catch(function () {});
+  };
   $("bLight").onclick = function () {
     fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !lightOn }) })
       .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) showLight(d); }).catch(function () {});

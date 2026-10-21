@@ -42,7 +42,7 @@ function rig(opts = {}) {
 {
   const b = createBulb({ host: "", now: () => 0 });
   b.noteOn(60, 90); b.tick(0); b.start(); b.stop();
-  assert.deepStrictEqual(b.info(), { enabled: true, configured: false, status: "no-bulb" });
+  assert.deepStrictEqual(b.info(), { enabled: true, configured: false, status: "no-bulb", palette: "spectrum", palettes: ["spectrum", "aurora", "sunset", "ocean", "warm"] });
 }
 
 // Before a note nothing is changed on the bulb: it is only asked for its state, rarely.
@@ -210,6 +210,29 @@ function rig(opts = {}) {
 }
 
 console.log("bulb tests passed");
+
+// Palettes: chosen at creation or later, unknown names refused, the change is reported and eases in.
+{
+  const r = rig({ palette: "ocean" });
+  assert.strictEqual(r.bulb.info().palette, "ocean");
+  r.bulb.tick(r.at());
+  r.bulb.noteOn(60, 90);
+  r.advance(3000);
+  const before = r.setPilots().length;
+  assert.strictEqual(r.bulb.setPalette("sunset"), true);
+  assert.strictEqual(r.bulb.setPalette("nope"), false);
+  assert.strictEqual(r.bulb.info().palette, "sunset");
+  r.advance(4000);
+  const sets = r.setPilots();
+  for (let i = Math.max(1, before); i < sets.length; i++) {
+    const a = sets[i - 1].msg.params, b = sets[i].msg.params;
+    assert(Math.abs(a.dimming - b.dimming) <= 3 && Math.max(Math.abs(a.r - b.r), Math.abs(a.g - b.g), Math.abs(a.b - b.b)) <= 80, "no jump when the palette changes");
+  }
+  const seen = [];
+  const r2 = rig({ onChange: (i) => seen.push(i.palette) });
+  r2.bulb.setPalette("aurora");
+  assert(seen.includes("aurora"), "palette change is reported");
+}
 
 // ---- nc transport with a fake spawn ----
 {
