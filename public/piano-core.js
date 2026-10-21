@@ -421,7 +421,8 @@
   // song.notes to "on time", "early", "late" or "miss". A loop pass with no miss and no wrong key is
   // clean; LOOP_CLEAN in a row finish it. opts.tolerant (or s.setTolerant()) is mic mode as in wait
   // mode: only the top note of each chord is played and judged, the right note name an octave up or
-  // down counts, and the chord's other notes are ignored instead of counted wrong.
+  // down counts, and the chord's other notes are ignored instead of counted wrong. opts.countIn sets the
+  // count-in beats (default one bar; 0 for none).
   function createTempoSession(song, opts) {
     opts = opts || {};
     var part = partNotes(song, opts), loop = part.loop, other = part.other;
@@ -448,13 +449,20 @@
       beatMs: beatMs,
       window: win,
       noteCount: notes.length,
-      range: { start: loop ? part.lo : Math.floor(first / bpb + 1e-6) * bpb, end: end, countIn: bpb },
+      range: { start: loop ? part.lo : Math.floor(first / bpb + 1e-6) * bpb, end: end, countIn: opts.countIn == null ? bpb : Math.max(0, Math.floor(opts.countIn)) },
       judged: {},
       lastTiming: null,
       cleanNeeded: LOOP_CLEAN,
       tolerant: !!opts.tolerant,
     };
     s.setTolerant = function (on) { s.tolerant = !!on; };
+    // The speed ramp raises the speed between loop passes: the clock and the timing windows follow it.
+    s.setSpeed = function (pct) {
+      speed = clampSpeed(pct);
+      beatMs = 60000 / (song.bpm * speed / 100); win = TEMPO_WINDOW_MS / beatMs; onTime = TEMPO_ON_MS / beatMs;
+      finish = Math.max(end, last + win);
+      s.speed = speed; s.beatMs = beatMs; s.window = win;
+    };
     function same(a, b) { return a === b || (s.tolerant && Math.abs(a - b) <= 12 && (a - b) % 12 === 0); }
     // In mic mode only a chord's top note is played.
     function counts(j) { return !s.tolerant || notes[j].note === top[j]; }
@@ -552,6 +560,42 @@
     };
     s.restart();
     return s;
+  }
+
+  // ---------- speed ramp, metronome and count-in ----------
+
+  var RAMP_STEP = 5, RAMP_TARGET = 100;
+
+  // The tempo-mode speed after a loop pass with the speed ramp on: a clean pass steps up toward the
+  // target, a miss or wrong key holds the speed, and it never goes down.
+  function rampSpeed(speed, clean, target, step) {
+    speed = clampSpeed(speed);
+    target = target == null ? RAMP_TARGET : clampSpeed(target);
+    step = step > 0 ? step : RAMP_STEP;
+    if (!clean || speed >= target) return speed;
+    return Math.min(target, speed + step);
+  }
+
+  // Milliseconds per beat at speed percent of the song's bpm.
+  function beatLengthMs(bpm, speed) {
+    return 60000 / (bpm * clampSpeed(speed) / 100);
+  }
+
+  // The metronome clicks from..to (in beats, from exclusive): each whole beat, accented on a bar line.
+  // The page calls it each frame with the previous and current clock (or with a short look-ahead) to
+  // know which clicks to schedule. Beats are negative during a count-in.
+  function metronomeBeats(from, to, beatsPerBar) {
+    if (!isFinite(from) || !isFinite(to) || !(to > from)) return [];
+    var bpb = beatsPerBar || 4, out = [];
+    for (var b = Math.floor(from + 1e-6) + 1; b <= to + 1e-6 && out.length < 64; b++) {
+      out.push({ beat: b, accent: ((b % bpb) + bpb) % bpb === 0 });
+    }
+    return out;
+  }
+
+  // The count-in length in beats, one bar when on.
+  function countInBeats(on, beatsPerBar) {
+    return on ? (beatsPerBar || 4) : 0;
   }
 
   // ---------- hear it first ----------
@@ -746,5 +790,6 @@
     createTempoSession: createTempoSession, clampSpeed: clampSpeed, countIn: countIn,
     TEMPO_WINDOW_MS: TEMPO_WINDOW_MS, TEMPO_ON_MS: TEMPO_ON_MS, SPEED_MIN: SPEED_MIN, SPEED_MAX: SPEED_MAX, SPEED_STEP: SPEED_STEP,
     listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
+    RAMP_STEP: RAMP_STEP, RAMP_TARGET: RAMP_TARGET, rampSpeed: rampSpeed, beatLengthMs: beatLengthMs, metronomeBeats: metronomeBeats, countInBeats: countInBeats,
   };
 });
