@@ -88,7 +88,7 @@ async function waitForServer() {
       assert.strictEqual(r.status, 200, url);
       assert(/<html/i.test(r.text), url);
     }
-    for (const url of ["/piano-core.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js", "/vendor/vexflow-4.2.5-bravura.js"]) {
+    for (const url of ["/piano-core.js", "/piano-fx.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js", "/vendor/vexflow-4.2.5-bravura.js"]) {
       r = await request("GET", url);
       assert.strictEqual(r.status, 200, url);
       assert(/javascript/.test(r.headers["content-type"]), url);

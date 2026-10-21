@@ -80,7 +80,7 @@ function presenceInfo() {
 const startedAt = Date.now();
 function buildId() {
   const parts = [startedAt];
-  for (const f of ["piano.html", "piano-link.html", "piano-core.js", "piano-sheet.js", "switch.js", "pitch.js"]) {
+  for (const f of ["piano.html", "piano-link.html", "piano-core.js", "piano-fx.js", "piano-sheet.js", "switch.js", "pitch.js"]) {
     try { const st = fs.statSync(path.join(ROOT, "public", f)); parts.push(Math.round(st.mtimeMs), st.size); } catch {}
   }
   return parts.join("-");
@@ -335,7 +335,7 @@ function sendCached(res, type, body) {
   res.end(body);
 }
 const VEXFLOW = "/vendor/vexflow-4.2.5-bravura.js";
-const SCRIPTS = ["/piano-core.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
+const SCRIPTS = ["/piano-core.js", "/piano-fx.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
 const json = (res, code, obj) => send(res, code, "application/json; charset=utf-8", JSON.stringify(obj));
 
 const server = http.createServer(async (req, res) => {
