@@ -89,6 +89,15 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   <div class="sub" id="midiHelp"></div>
 </div>
 
+<div class="card" id="lightCard">
+  <div class="lbl">Room light</div>
+  <div class="btns" style="align-items:center">
+    <button id="bLight" role="switch" aria-checked="true">Light: on</button>
+    <span class="sub" id="lightStatus"></span>
+  </div>
+  <div class="sub" style="margin-top:8px">The bulb follows what you play: slow, soft colours that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
+</div>
+
 <div class="card">
   <div class="lbl">On the TV</div>
   <div id="play">No TV state yet.</div>
@@ -309,6 +318,20 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   $("drop").addEventListener("drop", function (e) { e.preventDefault(); $("drop").className = "card"; upload(e.dataTransfer.files[0]); });
   function markSong() { if (tvState && tvState.songId) $("songs").value = tvState.songId; }
 
+  var lightOn = true;
+  function showLight(l) {
+    lightOn = l.enabled;
+    $("bLight").textContent = "Light: " + (l.enabled ? "on" : "off");
+    $("bLight").setAttribute("aria-checked", l.enabled);
+    $("bLight").className = l.enabled ? "pri" : "";
+    $("bLight").disabled = l.status === "no-bulb";
+    $("lightStatus").textContent = l.status === "no-bulb" ? "No bulb configured: add a bulb host to config.json" : !l.enabled ? "Off, the bulb is left as it was" : { searching: "Looking for the bulb…", "not-found": "Bulb not found (retrying quietly)", ready: "Bulb found, waiting for you to play", active: "Following your playing" }[l.status] || "";
+  }
+  $("bLight").onclick = function () {
+    fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !lightOn }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) showLight(d); }).catch(function () {});
+  };
+
   function connect() {
     var es = new EventSource("/api/piano/events?role=link");
     es.onopen = function () { dot("dSrv", "ok"); $("sSrv").textContent = "Server connected"; };
@@ -318,6 +341,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       dot("dTv", p.tv ? "ok" : "warn");
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
+    es.addEventListener("light", function (m) { showLight(JSON.parse(m.data)); });
     es.addEventListener("history", function () { loadSongs(); });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });

@@ -49,8 +49,19 @@ Logs go to `~/Library/Logs/piano-tutor.log`. Restart after config changes with `
 
 - `port` / `PIANO_PORT`: the port (default 4420).
 - `wallUrl` / `PIANO_WALL_URL`: another page the TV can switch to with Fast-Forward, such as a dashboard served elsewhere, for example `http://{host}:4410/`. `{host}` stands for the host the TV loaded the piano page from. Empty (the default): no other page, and Fast-Forward only shows a note. See Switching pages.
+- `bulb` (`config.json` only): `{ "host": "192.0.2.10", "enabled": true }`, the address of a WiZ colour bulb on the same network (see Room light). Without a host the light does nothing.
 - `PIANO_SONGS_DIR`: the songs folder (default `songs/`).
-- `PIANO_CAL`: the calibration file (default `piano-calibration.json`); `PIANO_HISTORY`: the score history (default `piano-history.json` next to the calibration). Neither is in git.
+- `PIANO_CAL`: the calibration file (default `piano-calibration.json`); `PIANO_HISTORY`: the score history (default `piano-history.json` next to the calibration). `PIANO_LIGHT`: the room light switch (default `piano-light.json`, same place). None of them is in git.
+
+## Room light
+
+A WiZ colour bulb can follow what you play. Put its address in `config.json` (`"bulb": { "host": "192.0.2.10" }`, a documentation address here; use your bulb's own) and restart. The server talks to it locally over UDP port 38899 and sends no more than 8 updates a second.
+
+The colour is one slowly moving blend of the notes played in the last few seconds: each pitch class has a hue on the circle of fifths (neighbouring notes get neighbouring hues), chords blend, and the colour eases towards the target with a cap on how far hue, saturation and brightness may move per tick, so even a fast run drifts rather than flashes. Brightness stays between about 18 and 65 percent (a little louder playing is a little brighter). Four seconds after the last note it fades slowly to a warm, dim glow, and ten minutes after that the bulb is given back as it was. The first note after a pause fades in from where the bulb was.
+
+The switch is on by default. Flip it with the Light line on the piano page (click, or B on a keyboard) or the Room light button on the link page; `GET /api/piano/light` reads it and `POST /api/piano/light {"enabled":false}` sets it (`{ enabled, configured, status }`, status one of `no-bulb`, `off`, `searching`, `not-found`, `ready`, `active`). The choice is saved in `piano-light.json`; until it has been used, `bulb.enabled` in `config.json` decides. Turning it off stops all sending and puts the bulb back to the state it had (read with `getPilot`) before the light first took control. A bulb that cannot be reached never slows the piano: it shows as "bulb not found" and is asked again quietly every 15 seconds.
+
+To tune the look, change the constants at the top of `light.js` (`DEFAULTS`: decay time, brightness band, saturation, easing, per-tick caps, idle colour and delay) and the timing in `bulb.js` (`DEFAULTS`: update rate, probe interval, release time). Both are plain objects.
 
 ## Calibration
 
@@ -160,15 +171,15 @@ The TV can share the screen with another page, such as a dashboard on another se
 
 ## API
 
-- `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
+- `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `light`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
 - `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
 - `GET /api/piano/songs[/<id>]`, `POST /api/piano/upload?name=<file name>`, `POST /api/piano/import`.
-- `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
+- `GET|POST /api/piano/light` (the room light switch), `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
 - `POST /api/switch`, `GET /api/config`, `GET /api/debug` (viewport beacon, logged).
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

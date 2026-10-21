@@ -2,7 +2,7 @@
 "use strict";
 // Piano tutor server: plain Node, zero runtime deps.
 // Routes: /piano (TV), /piano/link (MIDI or microphone input page), /api/piano/* (songs, calibration,
-// score history and the note relay: POST from the link page, Server-Sent Events to the TV),
+// score history, the room light's switch and the note relay: POST from the link page, Server-Sent Events to the TV),
 // POST /api/switch (TV page switch), /api/config, /api/debug (viewport beacon, logged).
 // Songs are JSON, MIDI or MusicXML files in songs/, watched for changes; the link page uploads new ones.
 const http = require("http");
@@ -10,12 +10,13 @@ const fs = require("fs");
 const path = require("path");
 const piano = require("./piano.js");
 const tvSwitch = require("./public/switch.js");
+const bulbLight = require("./bulb.js");
 
 const ROOT = __dirname;
 
 function loadConfig() {
   let file = {};
-  try { file = JSON.parse(fs.readFileSync(path.join(ROOT, "config.json"), "utf8")); } catch {}
+  try { file = JSON.parse(fs.readFileSync(process.env.PIANO_CONFIG || path.join(ROOT, "config.json"), "utf8")); } catch {}
   const calibration = process.env.PIANO_CAL || path.join(ROOT, "piano-calibration.json");
   return {
     port: Number(process.env.PIANO_PORT || file.port || 4420),
@@ -24,9 +25,27 @@ function loadConfig() {
     songsDir: process.env.PIANO_SONGS_DIR || path.join(ROOT, "songs"),
     pianoCalibration: calibration,
     pianoHistory: process.env.PIANO_HISTORY || path.join(path.dirname(calibration), "piano-history.json"),
+    pianoLight: process.env.PIANO_LIGHT || path.join(path.dirname(calibration), "piano-light.json"),
+    // The room light's bulb: { host, port?, enabled? } from config.json only; no host, no light.
+    bulb: file.bulb && typeof file.bulb === "object" ? file.bulb : {},
   };
 }
 const config = loadConfig();
+
+// ---------- room light ----------
+
+// The switch is saved next to the calibration; until it has been used, config.json's bulb.enabled
+// (default on) decides.
+function readLightEnabled() {
+  try { const v = JSON.parse(fs.readFileSync(config.pianoLight, "utf8")); if (typeof v.enabled === "boolean") return v.enabled; } catch {}
+  return config.bulb.enabled !== false;
+}
+const bulb = bulbLight.createBulb({
+  host: typeof config.bulb.host === "string" ? config.bulb.host.trim() : "",
+  port: Number(config.bulb.port) || undefined,
+  enabled: readLightEnabled(),
+  onChange: (info) => broadcast("light", info),
+});
 
 // ---------- piano relay ----------
 
@@ -56,6 +75,7 @@ function pianoEvents(req, res, query) {
   const client = { role, res };
   pianoClients.add(client);
   sse(res, "calibration", piano.readCalibration(config.pianoCalibration));
+  sse(res, "light", bulb.info());
   if (role === "link" && presence.tvState) sse(res, "tv-state", presence.tvState);
   broadcast("presence", presenceInfo());
   const ping = setInterval(() => res.write(": ping\n\n"), 15000);
@@ -97,6 +117,7 @@ async function pianoPost(url, req, res) {
       .map((e) => ({ on: !!e.on, note: e.note, velocity: Number(e.velocity) || 0 }));
     if (!events.length) return json(res, 400, { error: "no valid events" });
     presence.lastInputAt = Date.now();
+    for (const e of events) if (e.on && e.velocity > 0) bulb.noteOn(e.note, e.velocity);
     broadcast("midi", { events, at: presence.lastInputAt }, "tv");
     return json(res, 200, { ok: true, tv: presenceInfo().tv });
   }
@@ -164,6 +185,13 @@ async function pianoPost(url, req, res) {
     const score = piano.historySummary(config.pianoHistory)[play.song];
     broadcast("history", { play, score });
     return json(res, 200, { ok: true, play, score, previous: before });
+  }
+  if (url === "/api/piano/light") {
+    // { enabled: true | false }: the room light's switch. Saved, so it survives a restart.
+    if (typeof body.enabled !== "boolean") return json(res, 400, { error: "enabled must be true or false" });
+    const info = bulb.setEnabled(body.enabled);
+    try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled }) + "\n"); } catch {}
+    return json(res, 200, info);
   }
   if (url === "/api/piano/calibration") {
     let cal;
@@ -240,6 +268,7 @@ function pianoGet(url, qs, res) {
     return song ? json(res, song.error ? 422 : 200, song) : json(res, 404, { error: "no such song" });
   }
   if (url === "/api/piano/calibration") return json(res, 200, { calibration: piano.readCalibration(config.pianoCalibration) });
+  if (url === "/api/piano/light") return json(res, 200, bulb.info());
   if (url === "/api/piano/presence") return json(res, 200, presenceInfo());
   json(res, 404, { error: "not found" });
 }
@@ -286,4 +315,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(config.port, "0.0.0.0", () => {
   console.log(`piano-tutor listening on 0.0.0.0:${config.port}`);
   watchSongs();
+  bulb.start();
 });
+// Give the bulb back as it was when the server stops.
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { bulb.stop(); setTimeout(() => process.exit(0), 1500); });
