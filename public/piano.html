@@ -143,6 +143,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var marks = {};           // song beat of each step played this time through -> "ok" | "bad"
   var tempo = rememberedTempo();      // tempo mode (the song keeps time) instead of wait mode
   var speed = rememberedSpeed();      // tempo mode speed, percent of the song's tempo
+  var metronome = rememberedOnOff("pianoMetronome", false);  // metronome click in tempo mode
+  var clickVolume = rememberedClickVolume();                 // click loudness, 0-100
+  var countInOn = rememberedOnOff("pianoCountIn", true);     // count-in clicks before a tempo-mode start
+  var ramp = rememberedOnOff("pianoRamp", false);            // speed ramp: clean loop passes raise the speed
+  var rampTarget = rememberedRampTarget();                   // speed the ramp climbs to, percent
+  var audio = null, clickedTo = 0;  // Web Audio context for the clicks; song beat up to which clicks are scheduled
 
   // ---------- sizing ----------
 
@@ -190,7 +196,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (!song) return;
     cancelListen();
     loop = P.clampLoop(song, loop);
-    session = tempo ? P.createTempoSession(song, { hand: hand, loop: loop, speed: speed, tolerant: micMode }) : P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
+    session = tempo ? P.createTempoSession(song, { hand: hand, loop: loop, speed: speed, tolerant: micMode, countIn: P.countInBeats(countInOn, song.beatsPerBar || 4) }) : P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
     startClock(); paused = false; held = {}; playStart = 0; lastResult = null; marks = {};
     playMode = tempo ? "tempo" : "wait"; playSpeed = tempo ? speed / 100 : 1;
     showBest();
@@ -203,6 +209,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function modeText() {
     var only = song.hands.length < 2 ? " · " + song.hands[0] + " hand only" : "";
     var pace = session.tempo ? "Tempo " + session.speed + "% · " + Math.round(song.bpm * session.speed / 100) + " of " + song.bpm + " bpm" : "Wait mode · " + song.bpm + " bpm";
+    if (session.tempo && ramp) pace += loop ? " · ramp " + session.speed + "% → " + rampTarget + "%" : " · ramp on (loop a bar)";
+    if (session.tempo && metronome) pace += " · metronome";
     $("mode").textContent = pace.replace(" · ", " · " + HAND_NAMES[session.hand].toLowerCase() + only + " · ") + (song.shifted ? " · " + song.shifted + " notes moved an octave" : "") +
       (micMode ? " · mic: octave and top note" : "");
   }
@@ -250,6 +258,113 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     try { localStorage.setItem("pianoSpeed", String(speed)); } catch (e) {}
     if (tempo) newSession(); else report();
     toast("Tempo " + speed + "%" + (tempo ? "" : " (tempo mode is off)"));
+  }
+
+  function rememberedOnOff(key, dflt) {
+    try { var v = localStorage.getItem(key); return v === null ? dflt : v === "on"; } catch (e) { return dflt; }
+  }
+
+  function rememberedClickVolume() {
+    var v = NaN;
+    try { v = parseInt(localStorage.getItem("pianoClickVolume"), 10); } catch (e) {}
+    return v >= 0 && v <= 100 ? v : 60;
+  }
+
+  function rememberedRampTarget() {
+    var v = NaN;
+    try { v = Number(localStorage.getItem("pianoRampTarget")); } catch (e) {}
+    return v ? P.clampSpeed(v) : P.RAMP_TARGET;
+  }
+
+  function saveSetting(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) {}
+  }
+
+  // Link page (or K): the metronome click in tempo mode. id is "on", "off" or "" to toggle.
+  function setMetronome(id) {
+    if (mode !== "play") return;
+    metronome = id === "on" ? true : id === "off" ? false : !metronome;
+    saveSetting("pianoMetronome", metronome ? "on" : "off");
+    if (session) modeText();
+    report();
+    toast((metronome ? "Metronome on" : "Metronome off") + (tempo ? "" : " (tempo mode only)"));
+  }
+
+  // Link page slider: click loudness, 0-100. One accent click plays so the level can be heard.
+  function setClickVolume(v) {
+    if (mode !== "play") return;
+    clickVolume = Math.max(0, Math.min(100, Math.round(Number(v)) || 0));
+    saveSetting("pianoClickVolume", String(clickVolume));
+    report();
+    toast("Click volume " + clickVolume + "%");
+    if (audio) click(audio.currentTime, true);
+  }
+
+  // Link page (or N): the count-in before a tempo-mode start. The song starts over so it applies.
+  function setCountIn(id) {
+    if (mode !== "play") return;
+    countInOn = id === "on" ? true : id === "off" ? false : !countInOn;
+    saveSetting("pianoCountIn", countInOn ? "on" : "off");
+    if (tempo) newSession(); else report();
+    toast(countInOn ? "Count-in on" : "Count-in off");
+  }
+
+  // Link page (or U): the speed ramp. Looping a bar in tempo mode, each clean pass raises the speed.
+  function setRamp(id) {
+    if (mode !== "play") return;
+    ramp = id === "on" ? true : id === "off" ? false : !ramp;
+    saveSetting("pianoRamp", ramp ? "on" : "off");
+    if (tempo && loop) newSession(); else { if (session) modeText(); report(); }
+    toast(ramp ? "Speed ramp on · " + speed + "% → " + rampTarget + "%" + (tempo && loop ? "" : " (tempo mode, loop a bar)") : "Speed ramp off");
+  }
+
+  // Link page slider: the speed the ramp climbs to. The running loop carries on.
+  function setRampTarget(v) {
+    if (mode !== "play") return;
+    rampTarget = P.clampSpeed(v);
+    saveSetting("pianoRampTarget", String(rampTarget));
+    if (session) { modeText(); lastSide = ""; }
+    report();
+    toast("Ramp target " + rampTarget + "%");
+  }
+
+  // The audio context for the clicks, made on first need. A key press is a user gesture, so the
+  // keydown handler calls this too and the browser lets the sound start.
+  function audioWake() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!audio && AC) { try { audio = new AC(); } catch (e) {} }
+    if (audio && audio.state === "suspended") { try { audio.resume(); } catch (e) {} }
+    return audio;
+  }
+
+  // One click at audio time when: a short blip, higher on the accented first beat of a bar.
+  function click(when, accent) {
+    if (!audioWake() || clickVolume <= 0) return;
+    var o = audio.createOscillator(), g = audio.createGain();
+    var peak = clickVolume / 100 * (accent ? 1 : 0.55);
+    o.frequency.value = accent ? 1500 : 1000;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), when + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
+    o.connect(g); g.connect(audio.destination);
+    o.start(when); o.stop(when + 0.08);
+  }
+
+  // Schedule the clicks for the next 100 ms. Frame timing jitters, so a click is not sounded when a
+  // frame sees its beat; it is handed to Web Audio ahead of time, which keeps its own steady clock.
+  function metronomeTick() {
+    var ahead = clock + 100 / session.beatMs;
+    var from = clickedTo;
+    // The clock jumped (a restart, a new pass, a seek): start from where it is now.
+    if (!(from >= clock - 0.5 && from <= ahead)) from = clock - 0.001;
+    var beats = P.metronomeBeats(from, ahead, song.beatsPerBar || 4);
+    for (var i = 0; i < beats.length; i++) {
+      var b = beats[i];
+      if (!(metronome || (countInOn && b.beat < session.range.start))) continue;
+      if (!audioWake()) break;
+      click(audio.currentTime + Math.max(0, (b.beat - clock) * session.beatMs / 1000), b.accent);
+    }
+    clickedTo = ahead;
   }
 
   function rememberedFingers() {
@@ -610,6 +725,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "view") setView(c.id);
     else if (c.cmd === "tempo") setTempo(c.id);
     else if (c.cmd === "speed") setSpeed(c.id);
+    else if (c.cmd === "metronome") setMetronome(c.id);
+    else if (c.cmd === "metronomeVolume") setClickVolume(c.id);
+    else if (c.cmd === "countin") setCountIn(c.id);
+    else if (c.cmd === "ramp") setRamp(c.id);
+    else if (c.cmd === "rampTarget") setRampTarget(c.id);
   }
 
   // Play-pause on the Fire TV remote; L on a keyboard.
@@ -625,9 +745,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
   // between falling notes, sheet music and both. On a keyboard only (the remote has no free key), T
-  // switches tempo mode and - / = change its speed.
+  // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
+  // speed ramp.
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
+    audioWake();
     if (TVSwitch.isListenKey(e)) { e.preventDefault(); if (!e.repeat) toggleListen(); }
     else if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
     else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
@@ -642,6 +764,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
     else if ((k === "t" || k === "T") && mode === "play") { if (!e.repeat) setTempo(""); }
+    else if ((k === "k" || k === "K") && mode === "play") { if (!e.repeat) setMetronome(""); }
+    else if ((k === "n" || k === "N") && mode === "play") { if (!e.repeat) setCountIn(""); }
+    else if ((k === "u" || k === "U") && mode === "play") { if (!e.repeat) setRamp(""); }
     else if ((k === "-" || k === "_") && mode === "play") setSpeed(speed - P.SPEED_STEP);
     else if ((k === "=" || k === "+") && mode === "play") setSpeed(speed + P.SPEED_STEP);
   });
@@ -710,6 +835,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
       listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
       late: session && session.tempo ? session.late : 0, onTime: session && session.tempo ? session.onTime : 0,
@@ -774,6 +900,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       // Tempo mode: the clock keeps time at the chosen speed and notes not struck in time are missed.
       clock = P.advanceClock(clock, dt, song.bpm * session.speed / 100, null);
       tempoTick(now);
+      metronomeTick();
     } else if (session && mode === "play" && !paused) {
       // A finished song keeps falling away instead of freezing on screen.
       var st = session.current();
@@ -792,7 +919,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     for (var i = 0; i < r.misses.length; i++) flash[r.misses[i]] = { color: "#7a2b35", until: now + FLASH_MS / 2 };
     if (r.misses.length) tempoMarks();
     if (r.result === "pass") {
-      toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
+      // Below the target a raise starts the clean count over, so the loop finishes after LOOP_CLEAN
+      // clean passes at the target speed.
+      var next = ramp && loop ? P.rampSpeed(session.speed, r.clean, rampTarget) : session.speed;
+      if (next > session.speed) {
+        session.setSpeed(next); session.cleanPasses = 0; playSpeed = next / 100; modeText();
+        toast("Clean! Faster · " + next + "%");
+      } else if (ramp && loop && !r.clean && session.speed < rampTarget) {
+        toast("Not clean · holding " + session.speed + "%");
+      } else {
+        toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
+      }
       startClock();
       marks = {};
     }
@@ -1170,7 +1307,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var st = session.current(), waiting = session.waitingFor();
     var wantNames = waiting.map(P.noteName).join(" ");
     var tl = session.tempo ? [session.missed, session.onTime, session.early, session.late, session.passMissed, session.lastTiming ? session.lastTiming.timing + session.lastTiming.ms : ""].join(",") : "";
-    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused, session.passes, session.cleanPasses, session.passWrong, listen ? listen.label : "", tl].join("|");
+    var key = [bar, bars, session.correct, session.wrong, session.streak, wantNames, session.done, paused, session.passes, session.cleanPasses, session.passWrong, listen ? listen.label : "", tl, session.speed].join("|");
     if (key === lastSide) return;
     lastSide = key;
     $("bar").textContent = listen ? Math.min(bar, bars) + " of " + bars + " · listen" : session.done ? "Finished" : Math.min(bar, bars) + " of " + bars + (paused ? " · paused" : "");
@@ -1198,7 +1335,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       $("loopLbl").textContent = "Loop · " + barsText(loop);
       $("loopVal").textContent = dots;
       $("loopSub").textContent = session.cleanPasses + " of " + session.cleanNeeded + " clean in a row" +
-        (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1));
+        (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1)) +
+        (session.tempo && ramp ? " · ramp " + session.speed + "% → " + rampTarget + "%" : "");
     }
     $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song · ⏯ loop bar · ⏪ hear the bar") + " · ▲ hand · ⏩ wall";
   }
