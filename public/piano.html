@@ -29,6 +29,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #listen{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(16,38,28,.95);border:.12rem solid var(--green);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none;text-align:center}
 #listen.on{opacity:1}
 #listen .sub{display:block;font-size:.95rem;font-weight:600;color:var(--txt2)}
+#listen .meter{display:none;margin:.5rem 0 .1rem;height:.5rem;border-radius:.25rem;background:rgba(255,255,255,.14);overflow:hidden}
+#listen.whole .meter{display:block}
+#listen .meter i{display:block;height:100%;width:0;background:var(--green)}
 #toast{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
 #toast.on{opacity:1}
 #want span.right{color:var(--rh)}#want span.left{color:var(--lh)}
@@ -131,8 +134,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var hintUntil = 0;
   var online = false, presence = null, light = null;
   var micMode = false;      // notes come from a microphone on the link page: wait mode is forgiving
-  var listen = null;        // Hear it first while it plays: { plan, t0, clock, paused, label }
-  var listenReq = null, echoUntil = 0;
+  var listen = null;        // Hear it first while it plays: { plan, t0, clock, paused, label, whole, player }
+  var listenReq = null, echoUntil = 0;  // listenReq: a request on its way, { whole, player } for the whole song
+  var LONG_PRESS_MS = 600;  // holding the hear key this long plays the whole song
+  var hearDownAt = 0;       // when the hear key went down (0: not held, or it already did its work)
   var fingers = rememberedFingers();  // finger numbers on the falling notes and lit keys
   var playMode = "wait", playSpeed = 1;  // what a finished play is recorded as (tempo mode sets both)
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
@@ -409,27 +414,86 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     postJson("/api/piano/listen", { events: events }, function (err, r) {
       if (req !== listenReq) return;
       listenReq = null;
-      listen = { plan: plan, t0: Date.now() + P.LISTEN_LEAD_MS, clock: clock, paused: paused, label: barsText(plan) };
-      held = {};
-      var sub = err ? "Server unreachable: lights only" : !(r && r.output) ? "No keyboard output on the link page: lights only" : "then it is your turn";
-      $("toast").className = "";
-      $("listen").innerHTML = "♪ Listen · " + esc(barsText(plan)) + " · " + HAND_NAMES[plan.hand].toLowerCase() + '<span class="sub">' + esc(sub) + "</span>";
-      $("listen").className = "on";
-      lastSide = "";
-      report();
+      beginListen(plan, barsText(plan), false, null, err, r);
     });
+  }
+
+  // The TV side of Hear it first once the keyboard has been told: the badge, the clock and the lit keys.
+  function beginListen(plan, label, whole, player, err, r) {
+    listen = { plan: plan, t0: Date.now() + P.LISTEN_LEAD_MS, clock: clock, paused: paused, label: label, whole: whole, player: player, shownBar: 0 };
+    held = {};
+    var sub = err ? "Server unreachable: lights only" : !(r && r.output) ? "No keyboard output on the link page: lights only" : whole ? "press the key again, or play any key, to stop" : "then it is your turn";
+    $("toast").className = "";
+    $("listen").innerHTML = whole
+      ? "♪ Playing the whole song · " + HAND_NAMES[plan.hand].toLowerCase() + '<span class="sub" id="wholeBar"></span><div class="meter"><i id="wholeFill"></i></div><span class="sub">' + esc(sub) + "</span>"
+      : "♪ Listen · " + esc(label) + " · " + HAND_NAMES[plan.hand].toLowerCase() + '<span class="sub">' + esc(sub) + "</span>";
+    $("listen").className = whole ? "on whole" : "on";
+    lastSide = "";
+    report();
+  }
+
+  // Hear the whole song (remote: hold ⏪, W on a keyboard, or the link page's button): the keyboard plays
+  // the song from the first bar to the end, for the hand being practised, at the song's tempo (at the
+  // speed setting in tempo mode). The link page gets it a few seconds at a time. Again, any key played on
+  // the keyboard, or leaving the song stops it.
+  function toggleWhole() {
+    if (mode !== "play" || !session || !song) return;
+    if (listen || listenReq) return stopListen(true);
+    startWhole();
+  }
+
+  function startWhole() {
+    if (mode !== "play" || !session || !song) return;
+    var plan = P.wholeSongPlan(song, { hand: session.hand, speed: tempo ? speed : 100 });
+    if (!plan.events.length) { toast("Nothing to hear in this song"); return; }
+    // A bar already playing is handed over: the first chunk replaces whatever the keyboard is still playing.
+    if (listen || listenReq) stopListen(false);
+    var req = listenReq = { whole: true }, first = true;
+    var player = req.player = P.songPlayer(plan, {
+      now: Date.now, setTimer: function (fn, ms) { return setTimeout(fn, ms); }, clearTimer: clearTimeout,
+      send: function (chunk, done) {
+        postJson("/api/piano/listen", { whole: true, first: chunk.first, last: chunk.last, base: chunk.base, span: chunk.span, events: chunk.events }, function (err, r) {
+          if (first) {
+            first = false;
+            if (!err && req === listenReq && !player.ended()) { listenReq = null; beginListen(plan, "the whole song", true, player, err, r); }
+          }
+          done(err);
+        });
+      },
+      sendStop: function () { postJson("/api/piano/listen", { stop: true }, function () {}); },
+      onEnd: function (reason) {
+        if (reason !== "lost") return;
+        // The server can no longer be reached: the song ends here, on the TV as well.
+        if (listenReq === req) listenReq = null;
+        if (listen && listen.player === player) stopListen(false);
+        toast("Lost the connection: stopped");
+      },
+    });
+    player.start(Date.now() + P.LISTEN_LEAD_MS);
+  }
+
+  // The whole song's progress bar and the bar it is in, on the badge.
+  function wholeProgress(frac) {
+    var fill = $("wholeFill"), txt = $("wholeBar");
+    if (!fill || !txt) return;
+    fill.style.width = (Math.min(1, frac) * 100).toFixed(1) + "%";
+    var bars = P.barCount(song), bar = Math.min(bars, Math.max(1, P.barOf(song, clock)));
+    if (bar !== listen.shownBar) { listen.shownBar = bar; txt.textContent = "Bar " + bar + " of " + bars; }
   }
 
   // Ends Hear it first: tell is true when the keyboard must stop too (stopped early, song changed).
   function stopListen(tell) {
-    if (tell && (listen || listenReq)) postJson("/api/piano/listen", { stop: true }, function () {});
+    var pl = (listen && listen.player) || (listenReq && listenReq.player);
+    if (pl) pl.stop(tell);
+    else if (tell && (listen || listenReq)) postJson("/api/piano/listen", { stop: true }, function () {});
     listenReq = null;
     if (!listen) return;
     if (session.tempo) {
       // Tempo mode plays the bars just heard: count in again before them, nothing judged from there on.
-      session.seek(listen.plan.startBeat);
-      for (var mk in marks) if (Number(mk) >= listen.plan.startBeat - 1e-6) delete marks[mk];
-      clock = listen.plan.startBeat - session.range.countIn;
+      var from = listen.whole ? session.range.start : listen.plan.startBeat;
+      session.seek(from);
+      for (var mk in marks) if (Number(mk) >= from - 1e-6) delete marks[mk];
+      clock = from - session.range.countIn;
     } else clock = listen.clock;
     paused = listen.paused; listen = null;
     echoUntil = Date.now() + ECHO_MS;
@@ -532,6 +596,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function toWall() {
     if (leaving) return;
     if (!wallUrl) { toast("No wall page set (wallUrl in config.json)"); return; }
+    cancelListen();
     leaving = true;
     toast("Switching to wall…");
     setTimeout(function () { location.href = wallUrl; }, 150);
@@ -549,7 +614,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
   function noteOn(n) {
     // What Hear it first plays (and any echo of it) is not the player's input.
-    if (mode === "play" && (listen || listenReq || Date.now() < echoUntil)) return;
+    if (mode === "play" && (listen || listenReq || Date.now() < echoUntil)) {
+      // A key played while the whole song sounds stops it (the link page already drops the keyboard's echo of it).
+      if ((listen && listen.whole) || (listenReq && listenReq.whole)) stopListen(true);
+      return;
+    }
     held[n] = true;
     if (mode === "cal1") { work.low = n; calNote(); return; }
     if (mode === "cal2") { work.high = n; calNote(); return; }
@@ -721,6 +790,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if (c.cmd === "hand") setHand(c.id);
     else if (c.cmd === "loop") setLoop(c.from ? { from: c.from, to: c.to || c.from } : null);
     else if (c.cmd === "listen") toggleListen();
+    else if (c.cmd === "listenAll") toggleWhole();
     else if (c.cmd === "fingers") setFingers(c.id);
     else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
     else if (c.cmd === "view") setView(c.id);
@@ -743,7 +813,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song (or move the loop while
   // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
-  // (Hear it first), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
+  // (Hear it first; held down, or W, it plays the whole song), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
   // between falling notes, sheet music and both, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
   // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
@@ -751,7 +821,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     audioWake();
-    if (TVSwitch.isListenKey(e)) { e.preventDefault(); if (!e.repeat) toggleListen(); }
+    if (TVSwitch.isListenKey(e)) {
+      e.preventDefault();
+      if (!e.repeat) { var wasListening = !!(listen || listenReq); toggleListen(); hearDownAt = wasListening ? 0 : Date.now(); }
+      // Held down: the bar it started gives way to the whole song.
+      else if (hearDownAt && Date.now() - hearDownAt >= LONG_PRESS_MS) { hearDownAt = 0; startWhole(); }
+    }
+    else if ((k === "w" || k === "W") && mode === "play") { if (!e.repeat) toggleWhole(); }
     else if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
     else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
     else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(-1) : stepSong(-1); } else nudge(-step); e.preventDefault(); }
@@ -862,7 +938,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      listening: listen ? listen.label : "", fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      listening: listen ? listen.label : "", listeningAll: !!(listen && listen.whole), fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -927,7 +1003,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       // Hear it first runs the clock through the bars at tempo, whatever wait mode is waiting for.
       var el = now - listen.t0;
       if (el >= listen.plan.ms) stopListen(false);
-      else clock = listen.plan.startBeat + el / listen.plan.beatMs;
+      else {
+        clock = listen.plan.startBeat + el / listen.plan.beatMs;
+        if (listen.whole) wholeProgress(Math.max(0, el) / listen.plan.ms);
+      }
     } else if (session && mode === "play" && !paused && !progressOn && session.tempo) {
       // Tempo mode: the clock keeps time at the chosen speed and notes not struck in time are missed.
       clock = P.advanceClock(clock, dt, song.bpm * session.speed / 100, null);
@@ -1370,7 +1449,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1)) +
         (session.tempo && ramp ? " · ramp " + session.speed + "% → " + rampTarget + "%" : "");
     }
-    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song · ⏯ loop bar · ⏪ hear the bar") + " · ▲ hand · ⏩ wall";
+    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song · ⏯ loop bar · ⏪ hear the bar") + " · hold ⏪ (W) whole song · ▲ hand · ⏩ wall";
   }
 
   // ---------- helpers ----------
@@ -1407,6 +1486,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
   resize();
   window.addEventListener("resize", resize);
+  // Closing or leaving the page ends the whole song on the keyboard (the link page also stops when chunks stop coming).
+  window.addEventListener("pagehide", function () {
+    if (!(listen || listenReq)) return;
+    try { navigator.sendBeacon("/api/piano/listen", new Blob([JSON.stringify({ stop: true })], { type: "application/json" })); } catch (e) {}
+  });
   setTimeout(resize, 500); setTimeout(resize, 3000); // the viewport can settle after first paint on some WebViews
   status();
   getJson("/api/config", function (err, c) { if (!err && c) wallUrl = TVSwitch.resolveUrl(c.wallUrl, location.hostname); });

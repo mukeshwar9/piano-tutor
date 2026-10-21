@@ -169,6 +169,30 @@ async function waitForServer() {
     assert(link.events.some((e) => e.event === "light" && e.data.enabled === false), "switch is broadcast");
     link.stop();
 
+    // Hear it first: a bar is relayed as it comes; the whole song arrives as chunks that keep their place in it.
+    const hear = listen("link");
+    await wait(300);
+    const ev = (note, at) => ({ note, at, dur: 400 });
+    assert.strictEqual((await request("POST", "/api/piano/listen", { events: [] })).status, 400, "a bar needs notes");
+    assert.strictEqual((await request("POST", "/api/piano/listen", { events: [ev(60, 0), ev(300, 0)] })).status, 200);
+    assert.strictEqual((await request("POST", "/api/piano/listen", { whole: true, first: true, base: 0, span: 4000, events: [ev(60, 0), ev(62, 500), ev(64, 700000)] })).status, 200);
+    assert.strictEqual((await request("POST", "/api/piano/listen", { whole: true, base: 4000, span: 4000, events: [] })).status, 200, "a chunk of rests is a heartbeat");
+    assert.strictEqual((await request("POST", "/api/piano/listen", { whole: true, last: true, base: 3 * 3600000, span: 4000, events: [ev(65, 100)] })).status, 200, "a seven-minute song is fine, so are hours");
+    assert.strictEqual((await request("POST", "/api/piano/listen", { whole: true, base: -1, events: [ev(60, 0)] })).status, 400);
+    assert.strictEqual((await request("POST", "/api/piano/listen", { whole: true, base: 5 * 3600000, events: [ev(60, 0)] })).status, 400);
+    assert.strictEqual((await request("POST", "/api/piano/listen", { stop: true })).status, 200);
+    await wait(300);
+    const heard = hear.events.filter((e) => e.event === "listen").map((e) => e.data);
+    assert.deepStrictEqual(heard, [
+      { events: [{ note: 60, at: 0, dur: 400 }] },
+      { events: [{ note: 60, at: 0, dur: 400 }, { note: 62, at: 500, dur: 400 }], whole: true, first: true, last: false, base: 0, span: 4000 },
+      { events: [], whole: true, first: false, last: false, base: 4000, span: 4000 },
+      { events: [{ note: 65, at: 100, dur: 400 }], whole: true, first: false, last: true, base: 3 * 3600000, span: 4000 },
+      { stop: true },
+    ]);
+    assert.strictEqual((await request("POST", "/api/piano/control", { cmd: "listenAll" })).status, 200, "the link page can ask the TV to play the whole song");
+    hear.stop();
+
     console.log("server tests passed");
   } finally {
     child.kill();

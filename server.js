@@ -111,7 +111,7 @@ async function readJson(req, limit = 64 * 1024) {
   try { return JSON.parse(buf.toString("utf8") || "{}"); } catch { throw new Error("invalid JSON"); }
 }
 
-const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget"];
+const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll"];
 
 async function pianoPost(url, req, res) {
   let body;
@@ -130,7 +130,7 @@ async function pianoPost(url, req, res) {
   if (url === "/api/piano/control") {
     if (!CONTROL_CMDS.includes(body.cmd)) return json(res, 400, { error: "unknown command" });
     // hand: id is right | left | both. loop: from / to are bars, from 0 stops the loop. listen: the TV
-    // plays the current bar (or the loop) first. fingers and tempo: id is on | off, empty toggles. view: id is
+    // plays the current bar (or the loop) first; listenAll: it plays the whole song, or stops it. fingers and tempo: id is on | off, empty toggles. view: id is
     // notes | both | sheet (falling notes, both, sheet music), empty cycles. speed: id is
     // the tempo-mode speed in percent (50-100).
     broadcast("control", {
@@ -141,13 +141,22 @@ async function pianoPost(url, req, res) {
   }
   if (url === "/api/piano/listen") {
     // Hear it first: the TV sends what to play, link pages play it on the keyboard's MIDI output.
-    // { events: [{ note, at, dur }] } in ms from now, or { stop: true }.
+    // { events: [{ note, at, dur }] } in ms from now, or { stop: true }. The whole song comes as
+    // chunks: { whole: true, first, last, base, span, events } where base is the chunk's start in ms
+    // from the start of the song, at is from base, and a chunk may have no notes (the sender is alive).
     if (body.stop) { broadcast("listen", { stop: true }, "link"); return json(res, 200, { ok: true }); }
+    const whole = body.whole === true;
     const events = (Array.isArray(body.events) ? body.events : []).slice(0, 2000)
       .filter((e) => e && Number.isInteger(e.note) && e.note >= 0 && e.note <= 127 && Number(e.at) >= 0 && Number(e.at) <= 600000 && Number(e.dur) > 0)
       .map((e) => ({ note: e.note, at: Math.round(Number(e.at)), dur: Math.min(60000, Math.round(Number(e.dur))) }));
-    if (!events.length) return json(res, 400, { error: "no valid events" });
-    broadcast("listen", { events }, "link");
+    if (!events.length && !whole) return json(res, 400, { error: "no valid events" });
+    const msg = { events };
+    if (whole) {
+      const base = Number(body.base), span = Number(body.span);
+      if (!(base >= 0 && base <= 4 * 3600000)) return json(res, 400, { error: "invalid base" });
+      Object.assign(msg, { whole: true, first: body.first === true, last: body.last === true, base: Math.round(base), span: span > 0 ? Math.min(60000, Math.round(span)) : 4000 });
+    }
+    broadcast("listen", msg, "link");
     const info = presenceInfo();
     return json(res, 200, { ok: true, link: info.link, output: info.output });
   }

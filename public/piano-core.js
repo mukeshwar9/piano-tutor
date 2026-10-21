@@ -654,6 +654,76 @@
     return out;
   }
 
+  // ---------- hear the whole song ----------
+
+  // The whole song reaches the link page in chunks: each covers WHOLE_CHUNK_MS of the song and is sent
+  // WHOLE_AHEAD_MS before it is due, so the keyboard's MIDI output never holds more than a few seconds
+  // of notes and a long song costs nothing more than a short one.
+  var WHOLE_CHUNK_MS = 4000, WHOLE_AHEAD_MS = 3000;
+
+  // The plan for the entire song, first bar to last, for one hand or both, at opts.speed percent.
+  function wholeSongPlan(song, opts) {
+    return listenPlan(song, { hand: opts.hand, from: 1, to: barCount(song), speed: opts.speed });
+  }
+
+  // A plan's events cut into chunks of chunkMs, in time order. Each chunk is
+  // { index, base, span, last, events: [{ note, at, dur }] } with at relative to base (ms from the
+  // start of the song); a note belongs to the chunk it starts in and its dur may run past the end.
+  // Chunks with no notes are kept: they are the link page's sign that the sender is still there.
+  function songChunks(plan, chunkMs) {
+    var size = chunkMs || WHOLE_CHUNK_MS, count = Math.max(1, Math.ceil(plan.ms / size)), chunks = [];
+    var sorted = plan.events.slice().sort(function (a, b) { return a.at - b.at || a.note - b.note; });
+    for (var i = 0; i < count; i++) chunks.push({ index: i, base: i * size, span: size, last: i === count - 1, events: [] });
+    for (var j = 0; j < sorted.length; j++) {
+      var e = sorted[j], c = chunks[Math.min(count - 1, Math.floor(e.at / size))];
+      c.events.push({ note: e.note, at: e.at - c.base, dur: e.dur });
+    }
+    return chunks;
+  }
+
+  // Sends a plan chunk by chunk, each one WHOLE_AHEAD_MS before it is due. opts: send(chunk, done) posts
+  // one chunk and calls done(err); sendStop() tells the keyboard to stop; now() and setTimer(fn, ms) /
+  // clearTimer(id) are the clock; onSent() hears the last chunk go out; onEnd(reason) hears "lost" (a
+  // send failed) or "stopped", once; stop() tells the keyboard (stop(false) does not) even after
+  // everything was sent, as the song is still sounding. Chunks go one at a time in order. start(t0)
+  // fixes the moment the song begins (a now() time); the first chunk is sent at once.
+  function songPlayer(plan, opts) {
+    var chunks = songChunks(plan, opts.chunkMs), ahead = opts.aheadMs == null ? WHOLE_AHEAD_MS : opts.aheadMs;
+    var next = 0, t0 = 0, timer = null, busy = false, ended = "", sentAll = false, stopTell = false;
+    function end(reason, tell) {
+      if (ended) return;
+      ended = reason;
+      if (timer != null) opts.clearTimer(timer);
+      timer = null;
+      stopTell = reason === "stopped" && tell !== false;
+      if (stopTell) opts.sendStop();
+      if (opts.onEnd) opts.onEnd(reason);
+    }
+    function pump() {
+      timer = null;
+      if (ended || busy) return;
+      if (next >= chunks.length) { if (!sentAll) { sentAll = true; if (opts.onSent) opts.onSent(); } return; }
+      var due = t0 + chunks[next].base - ahead - opts.now();
+      if (due > 0) { timer = opts.setTimer(pump, due); return; }
+      var chunk = chunks[next++];
+      busy = true;
+      opts.send({ index: chunk.index, base: chunk.base, span: chunk.span, first: chunk.index === 0, last: chunk.last, events: chunk.events }, function (err) {
+        busy = false;
+        // A stop sent while this chunk was on its way may have reached the keyboard first: say it again.
+        if (ended) { if (stopTell) opts.sendStop(); return; }
+        if (err) return end("lost");
+        pump();
+      });
+    }
+    return {
+      start: function (t) { t0 = t; pump(); },
+      stop: function (tell) { end("stopped", tell); },
+      sent: function () { return next; },
+      count: function () { return chunks.length; },
+      ended: function () { return ended; },
+    };
+  }
+
   // Notes the keyboard sends back while it plays what it was sent (local echo, MIDI thru) must not
   // count as the player's. expect() records each message sent; match() is true, once, for an
   // incoming message of the same kind and key within windowMs of when it was due.
@@ -839,6 +909,7 @@
     advanceClock: advanceClock, hint: hint, createSession: createSession,
     createTempoSession: createTempoSession, clampSpeed: clampSpeed, countIn: countIn,
     TEMPO_WINDOW_MS: TEMPO_WINDOW_MS, TEMPO_ON_MS: TEMPO_ON_MS, SPEED_MIN: SPEED_MIN, SPEED_MAX: SPEED_MAX, SPEED_STEP: SPEED_STEP,
+    wholeSongPlan: wholeSongPlan, songChunks: songChunks, songPlayer: songPlayer, WHOLE_CHUNK_MS: WHOLE_CHUNK_MS, WHOLE_AHEAD_MS: WHOLE_AHEAD_MS,
     listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
     RAMP_STEP: RAMP_STEP, RAMP_TARGET: RAMP_TARGET, rampSpeed: rampSpeed, beatLengthMs: beatLengthMs, metronomeBeats: metronomeBeats, countInBeats: countInBeats,
   };

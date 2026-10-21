@@ -150,12 +150,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   </div>
   <div class="sub" id="rampStatus" style="margin-top:8px">In tempo mode the metronome clicks every beat (accent on the first beat of a bar) and the count-in clicks one bar before every start. With a loop running and the speed ramp on, each clean pass raises the speed by 5% up to the target and a mistake holds it. On a keyboard at the TV: K, N and U.</div>
   <div class="btns" style="margin-top:8px">
-    <button id="bListen" class="pri">Hear it first</button><button id="bFingers">Finger numbers</button>
+    <button id="bListen" class="pri">Hear it first</button><button id="bListenAll" class="pri">Hear the whole song</button><button id="bFingers">Finger numbers</button>
   </div>
   <div class="btns" style="margin-top:8px">
     <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
   </div>
-  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪.</div>
+  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (hold ⏪ on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
     <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
@@ -346,7 +346,11 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   function connect() {
     var es = new EventSource("/api/piano/events?role=link");
     es.onopen = function () { dot("dSrv", "ok"); $("sSrv").textContent = "Server connected"; };
-    es.onerror = function () { dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable, retrying…"; };
+    es.onerror = function () {
+      dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable, retrying…";
+      // A lost connection ends a song cleanly: the rest of it is not coming.
+      if (whole) { stopPlaying(); micMuteUntil = 0; $("listenStatus").textContent = "Connection lost: the song stopped."; }
+    };
     es.addEventListener("presence", function (m) {
       var p = JSON.parse(m.data);
       dot("dTv", p.tv ? "ok" : "warn");
@@ -358,7 +362,9 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
       var d = JSON.parse(m.data);
-      if (d.stop) { stopPlaying(); micMuteUntil = 0; } else { play(d.events); muteMicFor(d.events); }
+      if (d.stop) { stopPlaying(); micMuteUntil = 0; }
+      else if (d.whole) playChunk(d);
+      else { play(d.events); muteMicFor(d.events); }
     });
   }
 
@@ -404,6 +410,8 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     $("bProgress").textContent = s.progress ? "Close progress on the TV" : "Show progress on the TV";
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
+    $("bListenAll").textContent = s.listeningAll ? "Stop the song" : "Hear the whole song";
+    $("bListenAll").className = s.listeningAll ? "sel" : "pri";
     Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
       b.className = (b.dataset.tempo === "on") === !!s.tempo ? "sel" : "";
     });
@@ -438,6 +446,8 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     var on = type === 0x90 && d[2] > 0;
     // The keyboard sending back what Hear it first played is not the player's input.
     if (echo.match(on, d[1], t)) return logNote(on, d[1], d[2], "echo, ignored");
+    // A key played while the whole song sounds stops it at once, without waiting for the TV to say so.
+    if (on && whole) { stopPlaying(); micMuteUntil = 0; $("listenStatus").textContent = "You played a key: the song stopped."; }
     if (on) send([{ on: true, note: d[1], velocity: d[2] }], "midi");
     else send([{ on: false, note: d[1], velocity: 0 }], "midi");
   }
@@ -724,9 +734,39 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     $("listenStatus").textContent = "Playing " + events.length + " notes on " + outName + "…";
   }
 
+  // The whole song arrives in chunks (see P.songChunks): the first starts the song's clock and each later
+  // one is queued at its place on it, so the output never holds more than a few seconds of notes. If the
+  // next chunk is overdue the sender is gone and the song stops; a chunk that arrives long after its time is
+  // skipped rather than played as a burst.
+  var whole = null;   // { t0, timer } while a song plays
+  var STALE_MS = 250, SILENCE_MS = P.WHOLE_AHEAD_MS + 2500;
+  function playChunk(d) {
+    if (d.first) { stopPlaying(); whole = { t0: performance.now() + P.LISTEN_LEAD_MS, timer: null }; $("listenStatus").textContent = "Playing the whole song" + (out ? " on " + outName : ": no MIDI output, the TV only lights the keys") + "…"; }
+    if (!whole) return;
+    clearTimeout(whole.timer);
+    var base = whole.t0 + d.base, now = performance.now();
+    var events = d.events.filter(function (e) { return base + e.at >= now - STALE_MS; });
+    if (out && events.length) {
+      P.midiMessages(events, base).forEach(function (m) {
+        out.send(m.data, m.time);
+        echo.expect(m.data[0] === 0x90, m.data[1], m.time);
+      });
+      events.forEach(function (e) { if (played.indexOf(e.note) < 0) played.push(e.note); });
+    }
+    micMuteUntil = Math.max(micMuteUntil, base + d.span + 400);
+    if (d.last) { var done = whole; whole.timer = setTimeout(function () { if (whole === done) whole = null; }, Math.max(0, base + d.span - now) + 1500); return; }
+    var mine = whole;
+    whole.timer = setTimeout(function () {
+      if (whole !== mine) return;
+      stopPlaying(); micMuteUntil = 0;
+      $("listenStatus").textContent = "The TV stopped sending the song: playback ended.";
+    }, Math.max(0, base + d.span - now) + SILENCE_MS);
+  }
+
   // Stops a playback early: clears what is still queued (where Chrome supports it) and releases every
   // key it used.
   function stopPlaying() {
+    if (whole) { clearTimeout(whole.timer); whole = null; }
     if (!out || !played.length) return;
     try { if (out.clear) out.clear(); } catch (e) {}
     played.forEach(function (n) { out.send([0x80, n, 0]); });
@@ -806,6 +846,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   $("bLoopOff").onclick = function () { loopControl(0, 0); };
   $("bProgress").onclick = function () { control("progress", 0, tvState && tvState.progress ? "off" : "on"); };
   $("bListen").onclick = function () { control("listen"); };
+  $("bListenAll").onclick = function () { control("listenAll"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
     b.onclick = function () { control("view", 0, b.dataset.view); };
   });
