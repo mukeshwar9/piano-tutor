@@ -181,6 +181,28 @@ const msgs = chunks[1].events.length ? P.midiMessages(chunks[1].events, link0 + 
 assert(msgs.every((m) => m.time >= link0 + 4000), "the second chunk sounds from 4 s into the song");
 assert.deepStrictEqual(msgs[0].data[0], 0x90);
 
+// The browser's setTimeout, clearTimeout and Date.now throw "Illegal invocation" when called as methods of
+// another object, which is how a page passes them in: the player must call them on their own. (A stop that
+// threw here left the song playing on the TV, the keyboard and the link page's button.)
+function illegalWhenMethod(name, fn) {
+  return function (...a) { if (this !== undefined && this !== globalThis) throw new TypeError(`Illegal invocation: ${name}`); return fn(...a); };
+}
+{
+  let tnow = 1000, seq = 0;
+  const live = new Set(), stops = [];
+  const pl = P.songPlayer(longPlan, {
+    now: illegalWhenMethod("now", () => tnow),
+    setTimer: illegalWhenMethod("setTimeout", () => { live.add(++seq); return seq; }),
+    clearTimer: illegalWhenMethod("clearTimeout", (id) => live.delete(id)),
+    send: (chunk, done) => done(null),
+    sendStop: () => stops.push(1),
+  });
+  pl.start(1000);
+  assert.strictEqual(live.size, 1, "a chunk timer is pending, as it is for most of a song");
+  pl.stop();
+  assert.deepStrictEqual([live.size, stops.length, pl.ended()], [0, 1, "stopped"], "stopping cleared the timer and told the keyboard");
+}
+
 // Why it cannot start: a calibration in progress or no song open says so instead of doing nothing.
 assert.strictEqual(P.wholeBlocker("play", true), "");
 assert(/calibration/.test(P.wholeBlocker("cal2", true)));
@@ -203,5 +225,20 @@ assert.strictEqual(P.hearKeyAction({ playing: false, tapAt: 0 }, 10300, 500), "b
 assert(!P.hearHeld(0, 99999, 600));
 assert(!P.hearHeld(1000, 1599, 600));
 assert(P.hearHeld(1000, 1600, 600));
+
+// The TV page and the link page really use all of it (the page scripts are inline, so this reads their source):
+// a refactor of the key handler once dropped the W key without any other test noticing.
+{
+  const fs = require("fs"), path = require("path");
+  const tv = fs.readFileSync(path.join(__dirname, "..", "public", "piano.html"), "utf8");
+  const link = fs.readFileSync(path.join(__dirname, "..", "public", "piano-link.html"), "utf8");
+  assert(/k === "w" \|\| k === "W"\) && mode === "play"\) \{ if \(!e\.repeat\) toggleWhole\(\)/.test(tv), "W toggles the whole song");
+  assert(/P\.hearKeyAction\(/.test(tv) && /isListenKey\(e\)/.test(tv), "the hear key decides with hearKeyAction");
+  assert(/c\.cmd === "listenAll"\) toggleWhole\(\)/.test(tv), "the link page's command reaches toggleWhole");
+  assert(/P\.hearHeld\(/.test(tv), "holding the hear key still starts the whole song");
+  assert(/clearTimer: function \(id\) \{ clearTimeout\(id\); \}/.test(tv), "the TV passes clearTimeout wrapped");
+  assert(/cmd: "listenAll"/.test(link), "the link page button sends listenAll");
+  assert(/⏪⏪ \(W\) whole song/.test(tv), "the hint line names the keys");
+}
 
 console.log("whole-song tests passed");

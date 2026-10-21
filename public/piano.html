@@ -499,7 +499,7 @@ body.tutor #toast{z-index:5}
     toast("Starting the whole song…");
     var req = listenReq = { whole: true, at: Date.now() }, first = true;
     var player = req.player = P.songPlayer(plan, {
-      now: Date.now, setTimer: function (fn, ms) { return setTimeout(fn, ms); }, clearTimer: clearTimeout,
+      now: Date.now, setTimer: function (fn, ms) { return setTimeout(fn, ms); }, clearTimer: function (id) { clearTimeout(id); },
       send: function (chunk, done) {
         postJson("/api/piano/listen", { whole: true, first: chunk.first, last: chunk.last, base: chunk.base, span: chunk.span, events: chunk.events }, function (err, r) {
           if (first) {
@@ -896,6 +896,7 @@ body.tutor #toast{z-index:5}
       // Held down (on a remote whose keys repeat): the bar it started gives way to the whole song.
       else if (P.hearHeld(hearDownAt, Date.now(), LONG_PRESS_MS)) { hearDownAt = 0; hearTapAt = 0; startWhole(); }
     }
+    else if ((k === "w" || k === "W") && mode === "play") { if (!e.repeat) toggleWhole(); }
     else if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
     else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
     else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(-1) : stepSong(-1); } else nudge(-step); e.preventDefault(); }

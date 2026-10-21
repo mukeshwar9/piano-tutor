@@ -690,10 +690,13 @@
   function songPlayer(plan, opts) {
     var chunks = songChunks(plan, opts.chunkMs), ahead = opts.aheadMs == null ? WHOLE_AHEAD_MS : opts.aheadMs;
     var next = 0, t0 = 0, timer = null, busy = false, ended = "", sentAll = false, stopTell = false;
+    // The clock functions are called on their own, not as methods of opts: the browser's own setTimeout,
+    // clearTimeout and Date.now throw "Illegal invocation" when called with another object as this.
+    var now = opts.now, setTimer = opts.setTimer, clearTimer = opts.clearTimer;
     function end(reason, tell) {
       if (ended) return;
       ended = reason;
-      if (timer != null) opts.clearTimer(timer);
+      if (timer != null) clearTimer(timer);
       timer = null;
       stopTell = reason === "stopped" && tell !== false;
       if (stopTell) opts.sendStop();
@@ -703,8 +706,8 @@
       timer = null;
       if (ended || busy) return;
       if (next >= chunks.length) { if (!sentAll) { sentAll = true; if (opts.onSent) opts.onSent(); } return; }
-      var due = t0 + chunks[next].base - ahead - opts.now();
-      if (due > 0) { timer = opts.setTimer(pump, due); return; }
+      var due = t0 + chunks[next].base - ahead - now();
+      if (due > 0) { timer = setTimer(pump, due); return; }
       var chunk = chunks[next++];
       busy = true;
       opts.send({ index: chunk.index, base: chunk.base, span: chunk.span, first: chunk.index === 0, last: chunk.last, events: chunk.events }, function (err) {
