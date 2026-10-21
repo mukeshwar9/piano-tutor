@@ -43,6 +43,7 @@ function readLightEnabled() {
 const bulb = bulbLight.createBulb({
   host: typeof config.bulb.host === "string" ? config.bulb.host.trim() : "",
   port: Number(config.bulb.port) || undefined,
+  transportKind: config.bulb.transport === "udp" || config.bulb.transport === "nc" ? config.bulb.transport : undefined,
   enabled: readLightEnabled(),
   onChange: (info) => broadcast("light", info),
 });

@@ -55,7 +55,7 @@ Logs go to `~/Library/Logs/piano-tutor.log`. Restart after config changes with `
 
 ## Room light
 
-A WiZ colour bulb can follow what you play. Put its address in `config.json` (`"bulb": { "host": "192.0.2.10" }`, a documentation address here; use your bulb's own) and restart. The server talks to it locally over UDP port 38899 and sends no more than 8 updates a second.
+A WiZ colour bulb can follow what you play. Put its address in `config.json` (`"bulb": { "host": "192.0.2.10" }`, a documentation address here; use your bulb's own) and restart. The server talks to it locally over UDP port 38899 and sends no more than 8 updates a second. On macOS it goes through one long-lived `/usr/bin/nc -u` child, because macOS blocks Local Network access for a node process started by launchd (the LaunchAgent) while allowing `nc`; elsewhere node's own UDP socket is used. `bulb.transport` (`"nc"` or `"udp"`) forces one.
 
 The colour is one slowly moving blend of the notes played in the last few seconds: each pitch class has a hue on the circle of fifths (neighbouring notes get neighbouring hues), chords blend, and the colour eases towards the target with a cap on how far hue, saturation and brightness may move per tick, so even a fast run drifts rather than flashes. Brightness stays between about 18 and 65 percent (a little louder playing is a little brighter). Four seconds after the last note it fades slowly to a warm, dim glow, and ten minutes after that the bulb is given back as it was. The first note after a pause fades in from where the bulb was.
 
@@ -179,7 +179,7 @@ The TV can share the screen with another page, such as a dashboard on another se
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

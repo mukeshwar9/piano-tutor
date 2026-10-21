@@ -210,3 +210,78 @@ function rig(opts = {}) {
 }
 
 console.log("bulb tests passed");
+
+// ---- nc transport with a fake spawn ----
+{
+  const { jsonSplitter, ncTransport } = require("../bulb.js");
+  const { EventEmitter } = require("events");
+
+  // Replies split anywhere, joined together, with braces in strings.
+  const sp = jsonSplitter();
+  assert.deepStrictEqual(sp.push('{"a":1}{"b":{"c":2}}'), [{ a: 1 }, { b: { c: 2 } }]);
+  assert.deepStrictEqual(sp.push('{"method":"getPi'), []);
+  assert.deepStrictEqual(sp.push('lot","result":{"x":"}{\\"}"}}\n{"z"'), [{ method: "getPilot", result: { x: '}{"}' } }]);
+  assert.deepStrictEqual(sp.push(':3}'), [{ z: 3 }]);
+  assert.deepStrictEqual(sp.push("junk {bad json} {\"ok\":true}"), [{ ok: true }], "garbage is skipped");
+
+  const children = [], timers = [];
+  const fakeSpawn = (bin, args) => {
+    const c = new EventEmitter();
+    c.bin = bin; c.args = args; c.written = []; c.killed = false;
+    c.stdin = Object.assign(new EventEmitter(), { writable: true, write: (d) => c.written.push(d) });
+    c.stdout = new EventEmitter();
+    c.kill = () => { c.killed = true; };
+    children.push(c);
+    return c;
+  };
+  const t = ncTransport("192.0.2.10", 38899, { spawn: fakeSpawn, setTimeout: (fn, ms) => { const x = { fn, ms }; timers.push(x); return x; }, clearTimeout: (x) => { x.cleared = true; } });
+  const got = [];
+  t.onMessage((m) => got.push(m));
+  assert.strictEqual(children.length, 1);
+  assert.strictEqual(children[0].bin, "/usr/bin/nc");
+  assert.deepStrictEqual(children[0].args, ["-u", "192.0.2.10", "38899"]);
+
+  t.send({ method: "getPilot", params: {} });
+  assert.deepStrictEqual(children[0].written, ['{"method":"getPilot","params":{}}\n']);
+
+  children[0].stdout.emit("data", Buffer.from('{"method":"getPilot","res'));
+  children[0].stdout.emit("data", Buffer.from('ult":{"state":true}}{"method":"setPilot","result":{"success":true}}'));
+  assert.deepStrictEqual(got, [{ method: "getPilot", result: { state: true } }, { method: "setPilot", result: { success: true } }]);
+
+  // Exit: respawn after a delay that grows, and sends in between are dropped quietly.
+  children[0].emit("exit", 1);
+  assert.doesNotThrow(() => t.send({ method: "getPilot", params: {} }));
+  assert.strictEqual(timers.length, 1);
+  const first = timers[0].ms;
+  timers[0].fn();
+  assert.strictEqual(children.length, 2, "respawned");
+  children[1].emit("exit", 1);
+  assert(timers[1].ms > first, "backoff grows");
+  timers[1].fn();
+  assert.strictEqual(children.length, 3);
+  // A reply shows the child works: the delay starts over.
+  children[2].stdout.emit("data", Buffer.from('{"a":1}'));
+  children[2].emit("error", new Error("gone"));
+  assert.strictEqual(timers[2].ms, first);
+  // A failed spawn is retried too.
+  const bad = ncTransport("192.0.2.10", 38899, { spawn: () => { throw new Error("no nc"); }, setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers[timers.length - 1]; }, clearTimeout() {} });
+  assert.doesNotThrow(() => bad.send({}));
+  bad.close();
+
+  // Stop: the child is killed, nothing respawns.
+  const n = children.length;
+  timers[2].fn();
+  assert.strictEqual(children.length, n + 1);
+  t.close();
+  assert(children[n].killed);
+  children[n].emit("exit", 0);
+  assert(timers.every((x) => x.fn !== undefined));
+  const timersBefore = timers.length;
+  children[n].emit("exit", 0);
+  assert.strictEqual(timers.length, timersBefore, "no respawn after close");
+  assert.strictEqual(children.length, n + 1);
+  assert.doesNotThrow(() => t.send({}));
+
+  // The bulb works over it end to end.
+  console.log("nc transport tests passed");
+}
