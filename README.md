@@ -5,6 +5,7 @@ An aligned piano tutor for a TV mounted above a 61-key keyboard. The TV draws a 
 It is a small Node server with zero dependencies and two browser pages:
 
 - `/piano`: the TV page. Falling notes inside the calibrated strip in each hand's colour (right hand blue, left hand pink), the keys the song is waiting for lit in their hand's colour, correct keys in green, a wrong key in red with a hint ("B4 → try C5, one white key to the right"), bar, accuracy and streak in the side margins. Opens the calibration by itself until one is saved.
+- `/piano`, tutorial mode: ten lessons that start from the very first step, on the same page (see Tutorial mode).
 - `/piano/link`: the input page, open on the computer the keyboard is plugged into (or a phone or laptop with a microphone). It reads the keyboard with Web MIDI (or listens through a microphone, see Mic mode) and relays every note on/off to the server, plays Hear it first on the keyboard through its MIDI output (the same USB cable), shows whether the keyboard, its sound output, the server and the TV page are connected, and has calibration, song, hand, loop, view and tempo controls, plus a test keyboard (click, or type A W S E D F T G Y H U J K) for trying everything without a keyboard.
 
 The server relays notes from the link page to the TV over Server-Sent Events and keeps the calibration, score history and songs.
@@ -50,8 +51,8 @@ Logs go to `~/Library/Logs/piano-tutor.log`. Restart after config changes with `
 - `port` / `PIANO_PORT`: the port (default 4420).
 - `wallUrl` / `PIANO_WALL_URL`: another page the TV can switch to with Fast-Forward, such as a dashboard served elsewhere, for example `http://{host}:4410/`. `{host}` stands for the host the TV loaded the piano page from. Empty (the default): no other page, and Fast-Forward only shows a note. See Switching pages.
 - `bulb` (`config.json` only): `{ "host": "192.0.2.10", "enabled": true }`, the address of a WiZ colour bulb on the same network (see Room light). Without a host the light does nothing.
-- `PIANO_SONGS_DIR`: the songs folder (default `songs/`).
-- `PIANO_CAL`: the calibration file (default `piano-calibration.json`); `PIANO_HISTORY`: the score history (default `piano-history.json` next to the calibration). `PIANO_LIGHT`: the room light switch (default `piano-light.json`, same place). None of them is in git.
+- `PIANO_SONGS_DIR`: the songs folder (default `songs/`). `PIANO_LESSONS_DIR`: the tutorial lessons folder (default `lessons/`).
+- `PIANO_CAL`: the calibration file (default `piano-calibration.json`); `PIANO_HISTORY`: the score history (default `piano-history.json` next to the calibration). `PIANO_LIGHT`: the room light switch (default `piano-light.json`, same place). `PIANO_PROGRESS`: the tutorial progress (default `piano-progress.json`, same place). None of them is in git.
 
 ## Room light
 
@@ -86,7 +87,7 @@ On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; let
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first. Hold Rewind for about half a second (or press W) to hear the whole song instead.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
-- F: finger numbers on / off. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
+- E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
 
@@ -112,6 +113,49 @@ Sheet music: a grand staff across the top of the strip, right hand on the treble
 Finger numbers: songs can give each note a finger, 1 (thumb) to 5 (little finger), drawn on each falling note and lit key; the link page's Finger numbers button (or F) hides or shows them. All shipped songs carry beginner fingering.
 
 Score history: every finished play (a whole song, or a practice loop that reached its clean passes) is saved on the server in `piano-history.json` (the newest 2000 plays are kept): song, hand mode, wait or tempo mode and speed, loop range, accuracy, timing, best streak, wrong keys, duration and date. The TV shows the song's best accuracy and streak, a results card when a song or loop finishes, and a progress screen (the link page's Show progress on the TV button, or S) with every song's best scores. Timing is the share of struck notes within 110 ms of their time (the same green "on time" as tempo mode), plus the average early or late offset in ms (under 15 ms reads as on the beat). It is recorded only in tempo mode, at any speed, since wait mode waits for the player and shows timing as n/a. Missed notes count against accuracy, not timing, and entries saved before timing existed load with no timing. The results card shows it, and the progress screen shows each song's best timing from whole-song tempo plays. A song is **mastered** when one whole-song play in Both hands at full speed reached 95% accuracy or better.
+
+## Tutorial mode
+
+A complete beginner can start here. Ten short lessons teach the keyboard, the note names, the fingers, the beat, two hands and reading music, one idea per step, with large plain text on the TV (32 px or more at 1080p) and a few encouraging lines after each step. Everything on the piano page is reused: the aligned keyboard and key lighting, the falling notes, the sheet music, wait mode and tempo mode with the metronome and count-in, Hear it first, and the timing score. A wrong key never costs anything: it shows red, the right key shows amber, and the lesson waits.
+
+Opening it: step ◀ or ▶ on the remote past the end of the song list (the tutorial sits between the last song and the first), press E on a keyboard, open `/piano?learn=1`, or use the Tutorial card on the link page. The menu shows a progress strip, the ten lessons and where you stopped. Remote keys: ▲ ▼ choose, OK start or resume, ⏯ start the lesson over, ◀ ▶ back to the songs. In a lesson: ▶ next (or skip a step you are stuck on, but never a check), ◀ back, OK continue (or try a check again), ▲ start the step again, ⏪ (or P) hear it, ⏯ pause a timed step, ▼ the lesson list. A hint line at the bottom of the panel always shows the keys that work.
+
+The lessons:
+
+| # | Lesson | What it teaches | Check |
+| --- | --- | --- | --- |
+| 1 | Meet the keyboard | White and black keys, the groups of two and three, every C, middle C | Find five Cs |
+| 2 | Note names | C D E F G A B, walking up and down, finding notes by name | Ten named notes |
+| 3 | Right hand and fingers | Sitting, finger numbers 1 to 5, thumb on middle C, C D E F G | Up and down |
+| 4 | Beats and note lengths | A steady beat, counting, quarter, half and whole notes | Timing |
+| 5 | Your first tunes | Hot Cross Buns and Mary Had a Little Lamb, slowly and with the click | Mary |
+| 6 | Left hand | Bass position, five fingers, a C and G bass line | Left-hand five-finger line |
+| 7 | Rests and time signatures | Counting a rest, 4/4 and 3/4, an accented first beat | Timing |
+| 8 | Reading the staff | Lines and spaces, the treble clef, C to A, matching a note to a key | Read and play a line |
+| 9 | Hands together | Twinkle Twinkle Little Star: one hand, then both | Both hands, bars 1 to 4 |
+| 10 | Your first piece | Ode to Joy, right hand then both, and a summary of what you learned | Both hands, timed |
+
+A lesson is a list of steps. The step types are `explain` (text, optional lit keys, finger numbers, letters, the black-key groups or a staff; next with ▶ or any key), `find` ("play any C", any matching key counts), `play` (a short sequence in wait mode, or in tempo mode with `tempo` and `metronome`; `hand`, finger numbers, `blind` to hide the lit keys, `view` for sheet music), `repeat` (the same sequence again faster, with the click, or without highlights), `rhythm` (play on the click, scored with the timing logic), `read` (a note on a staff, press its key) and `check` (a short final exercise with a pass mark, 80% by default, as many tries as needed). A check can score the notes (`metric: "accuracy"`, the default) or the share of notes on the beat (`"timing"`, used with `tempo`).
+
+Progress is saved per lesson in `piano-progress.json` next to the score history (not in git; `PIANO_PROGRESS` changes the path): not started, in progress with the last step (so a lesson resumes where you stopped), or passed with the best accuracy. Lessons unlock in order, each after the one before it is passed, and any passed lesson can be played again. A missing or damaged file just means starting fresh.
+
+Adding a lesson: drop a JSON file into `lessons/`; the files are read in file name order (`11-sharps-and-flats.json` comes after `10-...`), and the next time the lesson menu opens it is there; no restart is needed. A lesson has an `id` (lower-case words joined by dashes), a `title`, a one-line `goal` and a list of `steps`:
+
+```json
+{
+  "id": "my-lesson",
+  "title": "My lesson",
+  "goal": "Play three notes.",
+  "steps": [
+    { "type": "explain", "title": "Three notes", "text": "Thumb on C, then D and E.", "highlight": ["C4", "D4", "E4"], "fingers": { "C4": 1, "D4": 2, "E4": 3 } },
+    { "type": "find", "prompt": "Play any E", "target": "E" },
+    { "type": "play", "notes": [["C4", 0, 1, 1], ["D4", 1, 1, 2], ["E4", 2, 1, 3]], "hand": "right", "bpm": 60 },
+    { "type": "check", "notes": [["E4", 0, 1, 3], ["D4", 1, 1, 2], ["C4", 2, 1, 1]], "hand": "right", "bpm": 60, "blind": true, "pass": 0.8 }
+  ]
+}
+```
+
+Notes are `[name, startBeat, lengthBeats, finger]` as in song files (`[name, start, length, "R" or "L", finger]` for a note with its own hand). A step can also take its notes from a library song, `"song": { "id": "ode-to-joy", "from": 1, "to": 4 }` (bars), and the server fills in the notes. Keys in `highlight` are `"C4"` (that key) or `"C*"` (every C); a `find` target is `"C"` (any C) or `"C4"` (that key only), with `count` for several different keys. Keep texts short: a `text` is at most 190 characters. Run `node validate-lessons.js` (it is part of `npm test`) to check every lesson: it fails on a malformed step, a note outside the 61 keys, a text too long for the TV, or a library song that does not exist. The lessons are read by the server and served at `GET /api/piano/lessons` (and `/api/piano/lessons/<id>`).
 
 ## Mic mode
 
@@ -178,14 +222,15 @@ The TV can share the screen with another page, such as a dashboard on another se
 ## API
 
 - `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `light`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
-- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
+- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget|learn", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
 - `GET /api/piano/songs[/<id>]`, `POST /api/piano/upload?name=<file name>`, `POST /api/piano/import`.
 - `GET|POST /api/piano/light` (the room light switch), `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
+- `GET /api/piano/lessons`, `GET /api/piano/lessons/<id>`, `GET|POST /api/piano/progress` (tutorial lessons and `{ lesson, action: "step" | "attempt" | "pass", step?, score? }`).
 - `POST /api/switch`, `GET /api/config`, `GET /api/debug` (viewport beacon, logged).
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), the tutorial (`lessons`: lesson validation including every shipped lesson, the step runner, pass marks and retries, progress and unlock order, and the validator script; `lesson-server`: the lesson and progress endpoints), `validate-lessons.js` (run first by `npm test`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

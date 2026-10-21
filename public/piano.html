@@ -66,6 +66,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #tutor{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(84rem,94%);background:rgba(19,26,39,.97);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.8rem;display:none;text-align:left}
 body.tutor #tutor{display:block}
 body.tutor #left,body.tutor #right,body.tutor #hint,body.tutor #panel{display:none}
+body.tutor #toast{z-index:5}
 #tutor .tag{font-size:1.6rem;font-weight:700;color:var(--blue);letter-spacing:.06em;text-transform:uppercase}
 #tutor h1{font-size:2.6rem;font-weight:800;line-height:1.15;margin:.2rem 0 .4rem}
 #tutor .text{font-size:2rem;line-height:1.35;color:var(--txt)}
@@ -84,7 +85,7 @@ body.tutor #left,body.tutor #right,body.tutor #hint,body.tutor #panel{display:no
 #tutor .strip span.current{border-color:var(--blue);color:var(--txt)}
 #tutor .strip span.open{color:var(--txt2)}
 #tutor ol.list{list-style:none}
-#tutor ol.list li{display:flex;align-items:baseline;gap:1rem;font-size:1.7rem;line-height:1.25;padding:.2rem .8rem;border-radius:.5rem;border:.12rem solid transparent;color:var(--txt)}
+#tutor ol.list li{display:flex;align-items:baseline;gap:1rem;font-size:1.7rem;line-height:1.2;padding:.1rem .8rem;border-radius:.5rem;border:.12rem solid transparent;color:var(--txt)}
 #tutor ol.list li b{width:2.2rem;color:var(--mut)}
 #tutor ol.list li .goal{flex:1;font-size:1.6rem;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #tutor ol.list li .st{font-weight:800;color:var(--mut)}
@@ -880,6 +881,7 @@ body.tutor #left,body.tutor #right,body.tutor #hint,body.tutor #panel{display:no
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
     else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn) { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
+    else if ((k === "e" || k === "E") && mode === "play") { if (!e.repeat) openTutor(); }
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
@@ -1641,7 +1643,7 @@ body.tutor #left,body.tutor #right,body.tutor #hint,body.tutor #panel{display:no
   // calibrating, or no song yet).
   function sheetBox() {
     var v = curView();
-    if (v === "notes" || mode !== "play" || !song || !session || !cal) return null;
+    if (v === "notes" || mode !== "play" || !song || !session || !cal || (tutor && tutor.screen === "menu")) return null;
     return { x: Math.round(cal.left), y: Math.round(H * 0.012), w: Math.round(cal.right - cal.left), h: Math.round(H * (tutor && v === "sheet" ? TUTOR_SHEET_H : SHEET_H[v])) };
   }
 
