@@ -251,11 +251,11 @@
     var W = 1, H = 1, U = 1, lay = null, keyTop = 0, hitY = 0, areaTop = 0, blackH = 0, left = 0, right = 0;
     var keyState = {};                  // note -> { on, t0, tOff, vel, hand, kind }
     var flares = [], flashes = [];      // short-lived key-top ripples and hit-line flashes
-    var energy = 0, lastPc = 0, lastNow = 0, suspended = false;
+    var energy = 0, lastPc = 0, lastNow = 0, suspended = false, govOn = true;
     var curt = [], aur = null, aurNext = 0, aurRect = null;
     var stats = { draw: 0 };
     var look = { fill: "", sink: 0, rim: null, rimAlpha: 0 };
-    var fx = { gov: gov, pool: pool, stats: stats, get cfg() { return cfg; }, get active() { return cfg.on && !suspended; } };
+    var fx = { gov: gov, pool: pool, stats: stats, get cfg() { return cfg; }, get active() { return cfg.on && !suspended; }, get governed() { return govOn; } };
     for (var ci = 0; ci < 5; ci++) curt.push({ x: 0.2 + ci * 0.15, tx: 0.5, pc: ci * 2, a: 0, phase: ci * 1.7 });
 
     function lvl(n) { return gov.level >= n; }
@@ -274,6 +274,8 @@
     fx.setIntensity = function (n) { intensity = parseIntensity(n) / 100; return intensity * 100; };
     fx.setPalette = function (name) { palette = PALETTES[name] ? name : "spectrum"; };
     // The page suspends the effects where they must not show (calibration): drawn as if Off, and cleared.
+    // The governor can be switched off (the page does it for ?nogov) to measure a level without it stepping down.
+    fx.setGovernor = function (on) { govOn = !!on; if (!govOn) { gov.reset(); pool.setLimit(1); } };
     fx.suspend = function (yes) {
       yes = !!yes;
       if (yes === suspended) return;
@@ -328,7 +330,7 @@
     fx.step = function (dtMs, now) {
       lastNow = now;
       if (!fx.active) return;
-      gov.step(dtMs);
+      if (govOn) gov.step(dtMs);
       pool.setLimit(lvl(2) ? 0.35 : 1);
       var dt = Math.min(100, dtMs) / 1000;
       energy *= Math.exp(-dt / 1.5);

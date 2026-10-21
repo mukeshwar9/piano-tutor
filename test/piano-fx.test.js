@@ -186,6 +186,17 @@ for (const name of Object.keys(F.PALETTES)) for (let pc = 0; pc < 12; pc++) F.pa
   // The pool cap holds under a flood of notes.
   for (let i = 0; i < 400; i++) fx.noteOn(36 + (i % 61), 1, "right", "player", 1, 3000);
   assert(fx.pool.live <= F.POOL_CAP);
+  // With the governor off (?nogov) slow frames never step the effects down.
+  fx.setGovernor(false);
+  for (let i = 0; i < 300; i++) fx.step(60, 5000 + i * 60);
+  assert.strictEqual(fx.gov.level, 0, "no stepping down without the governor");
+  assert(!fx.governed);
+  fx.setGovernor(true);
+  for (let i = 0; i < 300; i++) fx.step(60, 30000 + i * 60);
+  assert(fx.gov.level > 0, "and with it, slow frames step down");
+  fx.setSetting("lite");   // a changed setting starts again from the full level
+  fx.setSetting("off"); fx.setSetting("lite");
+  assert.strictEqual(fx.gov.level, 0);
   // Calibration suspends the effects and clears what is on screen.
   fx.suspend(true);
   assert(!fx.active && fx.pool.live === 0);

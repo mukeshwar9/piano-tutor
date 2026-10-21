@@ -205,6 +205,7 @@ body.tutor #toast{z-index:5}
   var fxIntensity = rememberedFxIntensity();     // 0-100
   var fxDebug = rememberedOnOff("pianoFxDebug", false);  // D: fps and the effects governor's level
   var fx = FX.create(ctx);
+  if (/[?&]nogov\b/.test(location.search)) fx.setGovernor(false);  // measuring: the governor never steps the effects down
   var fxSnd = {};           // notes Hear it first sounded last frame, to light and release their keys
   var fxRect = { x: 0, y: 0, w: 0, h: 0 }, fxFps = 60, fxDebugAt = 0;
 
@@ -1591,7 +1592,7 @@ body.tutor #toast{z-index:5}
     if (dt > 0) fxFps += (1000 / dt - fxFps) * 0.1;
     if (now < fxDebugAt) return;
     fxDebugAt = now + 250;
-    $("fxdebug").textContent = "fps " + Math.round(fxFps) + "\nfx " + (fx.active ? FX.presetName(fxSetting).toLowerCase() : "off") + "\ngov " + (fx.active ? fx.gov.level : "-") +
+    $("fxdebug").textContent = "fps " + Math.round(fxFps) + "\nfx " + (fx.active ? FX.presetName(fxSetting).toLowerCase() : "off") + "\ngov " + (!fx.active ? "-" : fx.governed ? fx.gov.level : "off") +
       "\nsparks " + fx.pool.live + "\ndraw " + fx.stats.draw.toFixed(1) + " ms";
   }
 

@@ -135,7 +135,7 @@ How the effects behave:
 - With the sheet music up, the effects stay in the falling strip below it and the staff panel is drawn on top; with sheet music only, just the key light and short sparks remain. Dimmed notes (the hand not being practised) get no glow.
 - Calibration always draws without effects.
 - If frames run slow the page steps down by itself: slower than 30 fps for 1.5 s drops one level (1: no Aurora, 2: a third of the sparks, 3: lite bars and no hit-line glow) and 8 s of comfortably fast frames bring it back. Changing the level on the TV starts again from the full level.
-- D on a keyboard shows a small readout at the bottom left (fps, the level, live sparks, the effects' draw time in ms). It works with the effects Off too, for measuring a baseline, and is remembered (`pianoFxDebug`).
+- D on a keyboard shows a small readout at the bottom left (fps, the level, live sparks, the effects' draw time in ms). It works with the effects Off too, for measuring a baseline, and is remembered (`pianoFxDebug`). Opening the page as `/piano?nogov` switches the governor off, to measure a level without it stepping down.
 
 The code is `public/piano-fx.js` (a module like `piano-core.js`; its settings, governor and particle pool are tested in `test/piano-fx.test.js`).
 
