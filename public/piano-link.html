@@ -161,6 +161,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   <div class="btns" style="margin-top:8px">
     <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
   </div>
+  <div class="btns" style="margin-top:8px;align-items:center">
+    <span class="sub">Light effects</span>
+    <button data-fx="off">Off</button><button data-fx="lite">Lite</button><button data-fx="neon">Neon + Sparks</button><button data-fx="all">All</button>
+    <input type="range" id="fxInt" min="0" max="100" step="5" value="65" aria-label="Effects intensity"><span id="fxIntVal">65%</span>
+  </div>
+  <div class="sub" style="margin-top:8px">Light effects on the TV: glowing falling notes, sparks, lit keys and (All) an aurora behind the notes in the room light's colours. Lite is the light one; the TV steps down by itself when it cannot keep up. On a keyboard at the TV: X cycles them, D shows an fps readout.</div>
   <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (press ⏪ twice quickly or hold it on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
@@ -446,6 +452,8 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     if (s.rampTarget && !rampDragging) { $("rampTarget").value = s.rampTarget; $("rampTargetVal").textContent = s.rampTarget + "%"; }
     $("rampStatus").textContent = s.ramp && s.loop && s.tempo ? "Ramp: " + s.rampSpeed + "% \u2192 " + s.rampTarget + "%" : rampStatusText;
     Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fx]"), function (b) { b.className = b.dataset.fx === s.fx ? "sel" : ""; });
+    if (typeof s.fxIntensity === "number" && !fxDragging) { $("fxInt").value = s.fxIntensity; $("fxIntVal").textContent = s.fxIntensity + "%"; }
     if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
     listenShown = !!s.listening;
   }
@@ -887,6 +895,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
     b.onclick = function () { control("tempo", 0, b.dataset.tempo); };
   });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-fx]"), function (b) {
+    b.onclick = function () { control("fx", 0, b.dataset.fx); };
+  });
+  var fxDragging = false;
+  $("fxInt").oninput = function () { fxDragging = true; $("fxIntVal").textContent = $("fxInt").value + "%"; };
+  $("fxInt").onchange = function () { fxDragging = false; control("fxIntensity", 0, $("fxInt").value); };
   var dragging = false;
   var clickDragging = false, rampDragging = false;
   var rampStatusText = $("rampStatus").textContent;

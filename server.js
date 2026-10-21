@@ -126,7 +126,7 @@ async function readJson(req, limit = 64 * 1024) {
   try { return JSON.parse(buf.toString("utf8") || "{}"); } catch { throw new Error("invalid JSON"); }
 }
 
-const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn"];
+const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn", "fx", "fxIntensity"];
 
 async function pianoPost(url, req, res) {
   let body;
@@ -145,7 +145,8 @@ async function pianoPost(url, req, res) {
   if (url === "/api/piano/control") {
     if (!CONTROL_CMDS.includes(body.cmd)) return json(res, 400, { error: "unknown command" });
     // hand: id is right | left | both. loop: from / to are bars, from 0 stops the loop. listen: the TV
-    // plays the current bar (or the loop) first; listenAll: it plays the whole song, or stops it. fingers and tempo: id is on | off, empty toggles. view: id is
+    // plays the current bar (or the loop) first; listenAll: it plays the whole song, or stops it. fingers and tempo: id is on | off, empty toggles. fx: id is off | lite | neon | all
+    // (or a list of layers), empty goes to the next; fxIntensity: id is 0-100. view: id is
     // notes | both | sheet (falling notes, both, sheet music), empty cycles. speed: id is
     // the tempo-mode speed in percent (50-100).
     broadcast("control", {

@@ -87,7 +87,7 @@ On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; let
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first. Press Rewind twice within half a second, or hold it, or press W, to hear the whole song instead.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
-- E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
+- E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: fps readout and the effects governor's level. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
 
@@ -113,6 +113,31 @@ Sheet music: a grand staff across the top of the strip, right hand on the treble
 Finger numbers: songs can give each note a finger, 1 (thumb) to 5 (little finger), drawn on each falling note and lit key; the link page's Finger numbers button (or F) hides or shows them. All shipped songs carry beginner fingering.
 
 Score history: every finished play (a whole song, or a practice loop that reached its clean passes) is saved on the server in `piano-history.json` (the newest 2000 plays are kept): song, hand mode, wait or tempo mode and speed, loop range, accuracy, timing, best streak, wrong keys, duration and date. The TV shows the song's best accuracy and streak, a results card when a song or loop finishes, and a progress screen (the link page's Show progress on the TV button, or S) with every song's best scores. Timing is the share of struck notes within 110 ms of their time (the same green "on time" as tempo mode), plus the average early or late offset in ms (under 15 ms reads as on the beat). It is recorded only in tempo mode, at any speed, since wait mode waits for the player and shows timing as n/a. Missed notes count against accuracy, not timing, and entries saved before timing existed load with no timing. The results card shows it, and the progress screen shows each song's best timing from whole-song tempo plays. A song is **mastered** when one whole-song play in Both hands at full speed reached 95% accuracy or better.
+
+## Light effects
+
+The TV page can draw its notes as light, in the style of the glowing piano videos: bars with a halo, sparks that burst from a key and drift up, keys that light and sink when they are pressed, and an aurora behind the falling notes. Every effect is drawn from gradients made once at start, added together on the one canvas; nothing is copied from any video or artwork.
+
+Four levels, cycled with X on a keyboard at the TV or chosen on the link page (Light effects: Off, Lite, Neon + Sparks, All), with an intensity slider (0-100%, 65 to start). Both are remembered by the TV browser (`localStorage` keys `pianoFx` and `pianoFxIntensity`).
+
+| Level | What it draws |
+|---|---|
+| Off | Exactly the page without effects. |
+| Lite (the default) | A halo on the bar that is sounding, a flash where it meets the hit line, sparks from the pressed key and a lit, sinking key with a beam. Light enough for a Fire TV Stick. |
+| Neon + Sparks | Also a halo and a trailing light on every falling bar, and a glow along the hit line. |
+| All | Also Aurora: soft curtains of light behind the falling notes that slide towards the latest notes, in the colours of the room light's palette (O changes both). It is a few CSS elements behind the canvas, so it costs no canvas drawing. |
+
+How the effects behave:
+
+- They follow how hard a key is struck: MIDI velocity sets the size of the flash and the number and speed of the sparks. The microphone hears no velocity and counts as 0.7. A chord shares one budget, each note getting 1/√n of it, so a big chord brightens the screen instead of whiting it out.
+- A pressed key sinks a little, takes its hand's colour (right blue, left pink) and sends a beam up. A judged colour (green, amber, red) always wins over the hand colour. A wrong key gets red light and no sparks: the effects never celebrate a mistake.
+- Hear it first lights the keys with its own look at 60%: a tinted key with a bright rim and a hollow beam with a pulse travelling up it, and half the sparks. Keys the music plays do not sink.
+- With the sheet music up, the effects stay in the falling strip below it and the staff panel is drawn on top; with sheet music only, just the key light and short sparks remain. Dimmed notes (the hand not being practised) get no glow.
+- Calibration always draws without effects.
+- If frames run slow the page steps down by itself: slower than 30 fps for 1.5 s drops one level (1: no Aurora, 2: a third of the sparks, 3: lite bars and no hit-line glow) and 8 s of comfortably fast frames bring it back. Changing the level on the TV starts again from the full level.
+- D on a keyboard shows a small readout at the bottom left (fps, the level, live sparks, the effects' draw time in ms). It works with the effects Off too, for measuring a baseline, and is remembered (`pianoFxDebug`).
+
+The code is `public/piano-fx.js` (a module like `piano-core.js`; its settings, governor and particle pool are tested in `test/piano-fx.test.js`).
 
 ## Tutorial mode
 
@@ -222,7 +247,7 @@ The TV can share the screen with another page, such as a dashboard on another se
 ## API
 
 - `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `light`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
-- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget|learn", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
+- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|fx|fxIntensity|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget|learn", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
 - `GET /api/piano/songs[/<id>]`, `POST /api/piano/upload?name=<file name>`, `POST /api/piano/import`.
 - `GET|POST /api/piano/light` (the room light switch), `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
 - `GET /api/piano/lessons`, `GET /api/piano/lessons/<id>`, `GET|POST /api/piano/progress` (tutorial lessons and `{ lesson, action: "step" | "attempt" | "pass", step?, score? }`).
@@ -230,7 +255,7 @@ The TV can share the screen with another page, such as a dashboard on another se
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), the tutorial (`lessons`: lesson validation including every shipped lesson, the step runner, pass marks and retries, progress and unlock order, and the validator script; `lesson-server`: the lesson and progress endpoints), `validate-lessons.js` (run first by `npm test`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), the tutorial (`lessons`: lesson validation including every shipped lesson, the step runner, pass marks and retries, progress and unlock order, and the validator script; `lesson-server`: the lesson and progress endpoints), `validate-lessons.js` (run first by `npm test`), sheet music (`piano-sheet`), the light effects' settings, frame-rate governor and particle pool (`piano-fx`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 

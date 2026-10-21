@@ -15,6 +15,9 @@
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 /* 1rem is set from the viewport height in JS (20px at 1080 tall), so the text scales with the TV. */
 #c{position:absolute;left:0;top:0;width:100%;height:100%}
+/* Aurora (a light effect) is a few CSS elements behind the canvas; fx.attachAurora() sets it up and it is hidden with the effects off. */
+#aurora{display:none}
+#fxdebug{position:absolute;left:.6rem;bottom:.4rem;font:.8rem/1.3 ui-monospace,Menlo,Consolas,monospace;color:#7dffb0;white-space:pre;pointer-events:none;display:none;text-shadow:0 0 .2rem #000}
 .side{position:absolute;top:1.2rem;display:flex;flex-direction:column;gap:.9rem;font-variant-numeric:tabular-nums;line-height:1.25}
 .side .lbl{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em}
 .side .val{font-size:1.6rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -95,6 +98,7 @@ body.tutor #toast{z-index:5}
 </style>
 </head>
 <body>
+<div id="aurora"></div>
 <canvas id="c"></canvas>
 <div id="left" class="side">
   <div id="title">Loading song…</div>
@@ -115,10 +119,12 @@ body.tutor #toast{z-index:5}
 <div id="toast"></div>
 <div id="listen"></div>
 <div id="count"></div>
+<div id="fxdebug"></div>
 <div id="panel"></div>
 <div id="progress"></div>
 <div id="tutor"></div>
 <script src="/piano-core.js"></script>
+<script src="/piano-fx.js"></script>
 <script src="/piano-lessons.js"></script>
 <script src="/piano-sheet.js"></script>
 <script src="/vendor/vexflow-4.2.5-bravura.js"></script>
@@ -194,6 +200,13 @@ body.tutor #toast{z-index:5}
   var tutor = null;         // tutorial mode while it is open: { screen: "menu" | "lesson", lessons, progress, sel, runner, ... }
   var tutorStash = null;    // the song the page had open, put back when the tutorial closes
   var tutorHear = null;     // a tutorial step being played to the player: { plan, t0, ms }
+  var FX = window.PianoFx;
+  var fxSetting = rememberedFx();                // light effects: a preset or a list of layers (see piano-fx.js)
+  var fxIntensity = rememberedFxIntensity();     // 0-100
+  var fxDebug = rememberedOnOff("pianoFxDebug", false);  // D: fps and the effects governor's level
+  var fx = FX.create(ctx);
+  var fxSnd = {};           // notes Hear it first sounded last frame, to light and release their keys
+  var fxRect = { x: 0, y: 0, w: 0, h: 0 }, fxFps = 60, fxDebugAt = 0;
 
   // ---------- sizing ----------
 
@@ -423,6 +436,58 @@ body.tutor #toast{z-index:5}
     try { localStorage.setItem("pianoFingers", fingers ? "on" : "off"); } catch (e) {}
     toast(fingers ? "Finger numbers on" : "Finger numbers off");
     report();
+  }
+
+  function rememberedFx() {
+    try { return FX.parseSetting(localStorage.getItem("pianoFx")).value; } catch (e) { return FX.parseSetting(null).value; }
+  }
+
+  function rememberedFxIntensity() {
+    try { return FX.parseIntensity(localStorage.getItem("pianoFxIntensity")); } catch (e) { return FX.DEFAULT_INTENSITY; }
+  }
+
+  function fxPreset() { return FX.parseSetting(fxSetting).preset; }
+
+  // Link page (or X): the light effects. id is a preset (off, lite, neon, all) or a list of layers; empty goes to the next
+  // preset: Off, Lite, Neon + Sparks, All. Calibration always draws without them.
+  function setFx(id) {
+    if (id && !FX.isSetting(id)) return;
+    fxSetting = id ? FX.parseSetting(id).value : FX.nextSetting(fxSetting);
+    saveSetting("pianoFx", fxSetting);
+    fx.setSetting(fxSetting);
+    toast("Light effects: " + FX.presetName(fxSetting) + (fx.cfg.on ? " · " + fxIntensity + "%" : ""));
+    report();
+  }
+
+  // Link page slider: how strong the effects are, 0-100.
+  function setFxIntensity(v) {
+    fxIntensity = FX.parseIntensity(v);
+    saveSetting("pianoFxIntensity", String(fxIntensity));
+    fx.setIntensity(fxIntensity);
+    toast("Effects intensity " + fxIntensity + "%" + (fx.cfg.on ? "" : " (effects are off)"));
+    report();
+  }
+
+  // D on a keyboard: fps and the effects governor's level, for measuring on the TV.
+  function toggleFxDebug() {
+    fxDebug = !fxDebug;
+    saveSetting("pianoFxDebug", fxDebug ? "on" : "off");
+    $("fxdebug").style.display = fxDebug ? "block" : "none";
+  }
+
+  // The player's key went down: the effects light it (red for a wrong key). vel is the MIDI velocity, none from the microphone.
+  function fxNote(n, vel, simul, kind, st) {
+    if (!fx.active) return;
+    var h = (st && st.hands && st.hands[n]) || (n < 60 ? "left" : "right");
+    fx.noteOn(n, FX.velocity01(vel, micMode), h, kind, simul, Date.now());
+  }
+
+  // Hear it first sounds keys without anyone pressing them: light each as it starts and release it as it ends.
+  function fxSync(snd, now) {
+    var n, ons = [], i;
+    for (n in snd) if (!fxSnd[n]) ons.push(n);
+    for (n in fxSnd) if (!snd[n]) { fx.noteOff(Number(n), now); delete fxSnd[n]; }
+    for (i = 0; i < ons.length; i++) { fxSnd[ons[i]] = true; fx.noteOn(Number(ons[i]), FX.MIC_VELOCITY, snd[ons[i]].hand, "music", ons.length, now); }
   }
 
   function rememberedView() {
@@ -670,9 +735,10 @@ body.tutor #toast{z-index:5}
 
   // ---------- input ----------
 
-  function noteOn(n) {
+  // vel is the key's MIDI velocity and simul how many keys went down in the same message (a chord), for the light effects.
+  function noteOn(n, vel, simul) {
     // What Hear it first plays (and any echo of it) is not the player's input.
-    if (mode === "play" && tutor) return tutorNote(n);
+    if (mode === "play" && tutor) return tutorNote(n, vel, simul);
     if (mode === "play" && (listen || listenReq || Date.now() < echoUntil)) {
       // A key played while the whole song sounds stops it (the link page already drops the keyboard's echo of it).
       if ((listen && listen.whole) || (listenReq && listenReq.whole)) stopListen(true);
@@ -689,6 +755,7 @@ body.tutor #toast{z-index:5}
     if (session.tempo) tempoTick(Date.now());
     if (!playStart) playStart = Date.now();
     var st = session.current(), r = session.tempo ? session.press(n, clock) : session.press(n);
+    fxNote(n, vel, simul, r.result === "wrong" ? "wrong" : "player", st);
     // The sheet music colours each step played: green, or red when it took a wrong key.
     if (r.result === "wrong" && st) marks[st.start] = "bad";
     else if (r.result === "advance" || r.result === "pass" || r.result === "done") marks[st.start] = marks[st.start] || "ok";
@@ -785,6 +852,7 @@ body.tutor #toast{z-index:5}
 
   function noteOff(n) {
     delete held[n];
+    fx.noteOff(n, Date.now());
     if (flash[n] && flash[n].until === Infinity) flash[n].until = Date.now() + FLASH_MS / 2;
   }
 
@@ -853,6 +921,8 @@ body.tutor #toast{z-index:5}
     else if (c.cmd === "listen") toggleListen();
     else if (c.cmd === "listenAll") toggleWhole();
     else if (c.cmd === "fingers") setFingers(c.id);
+    else if (c.cmd === "fx") setFx(c.id);
+    else if (c.cmd === "fxIntensity") setFxIntensity(c.id);
     else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
     else if (c.cmd === "view") setView(c.id);
     else if (c.cmd === "tempo") setTempo(c.id);
@@ -876,7 +946,7 @@ body.tutor #toast{z-index:5}
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
   // (Hear it first; pressed twice quickly, or held down, or W, it plays the whole song), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
-  // between falling notes, sheet music and both, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
+  // between falling notes, sheet music and both, X cycles the light effects (Off, Lite, Neon + Sparks, All) and D shows the fps readout, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
   // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
   // speed ramp.
   document.addEventListener("keydown", function (e) {
@@ -908,6 +978,8 @@ body.tutor #toast{z-index:5}
     else if ((k === "e" || k === "E") && mode === "play") { if (!e.repeat) openTutor(); }
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
+    else if ((k === "x" || k === "X") && mode === "play") { if (!e.repeat) setFx(""); }
+    else if ((k === "d" || k === "D") && mode === "play") { if (!e.repeat) toggleFxDebug(); }
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
     else if ((k === "b" || k === "B") && mode === "play") { if (!e.repeat) toggleLight(); }
@@ -1081,7 +1153,7 @@ body.tutor #toast{z-index:5}
   function tutorKey(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     var k = e.key;
-    if (TVSwitch.isSwitchKey(e) || k === "b" || k === "B" || k === "o" || k === "O") return false;
+    if (TVSwitch.isSwitchKey(e) || k === "b" || k === "B" || k === "o" || k === "O" || k === "x" || k === "X" || k === "d" || k === "D") return false;
     e.preventDefault();
     if (e.repeat) return true;
     var run = tutor.runner, back = k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack";
@@ -1118,7 +1190,7 @@ body.tutor #toast{z-index:5}
   }
 
   // A key struck while a lesson is open.
-  function tutorNote(n) {
+  function tutorNote(n, vel, simul) {
     held[n] = true;
     var run = tutor.runner;
     if (!run || tutorHear || tutor.busy || Date.now() < echoUntil || run.outcome) return;
@@ -1127,6 +1199,7 @@ body.tutor #toast{z-index:5}
     var st = rt.kind === "sequence" && !rt.tempo ? session.current() : null;
     var r = run.press(n, clock), green = { color: "#3ddc84", until: now + FLASH_MS };
     if (r.result === "ignored") return;
+    fxNote(n, vel, simul, r.result === "wrong" ? "wrong" : "player", null);
     if (rt.kind === "sequence") {
       if (r.result === "wrong" && st) marks[st.start] = "bad";
       else if ((r.result === "advance" || r.result === "done") && st) marks[st.start] = marks[st.start] || "ok";
@@ -1326,9 +1399,11 @@ body.tutor #toast{z-index:5}
     es.onerror = function () { online = false; status(); };
     es.addEventListener("midi", function (m) {
       var d = JSON.parse(m.data);
-      for (var i = 0; i < d.events.length; i++) {
+      var ons = 0, i;
+      for (i = 0; i < d.events.length; i++) if (d.events[i].on && d.events[i].velocity > 0) ons++;
+      for (i = 0; i < d.events.length; i++) {
         var ev = d.events[i];
-        if (ev.on && ev.velocity > 0) noteOn(ev.note); else noteOff(ev.note);
+        if (ev.on && ev.velocity > 0) noteOn(ev.note, ev.velocity, ons); else noteOff(ev.note);
       }
     });
     es.addEventListener("control", function (m) {
@@ -1350,7 +1425,7 @@ body.tutor #toast{z-index:5}
       if (c && (!saved || c.savedAt !== saved.savedAt)) { saved = c; if (mode === "play") applyCalibration(); }
       if (!c && !saved && mode === "play" && !connect.asked) { connect.asked = true; startCalibration(); }
     });
-    es.addEventListener("light", function (m) { light = JSON.parse(m.data); status(); });
+    es.addEventListener("light", function (m) { light = JSON.parse(m.data); if (light && light.palette) fx.setPalette(light.palette); status(); });
     es.addEventListener("presence", function (m) { presence = JSON.parse(m.data); setMicMode(presence.input === "mic"); status(); });
     // The songs folder changed: a new song joins the ◀ ▶ list, and the song on screen loads again
     // when its file (or its import settings) changed.
@@ -1418,7 +1493,7 @@ body.tutor #toast{z-index:5}
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, fx: fxPreset(), fxIntensity: fxIntensity, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -1501,11 +1576,23 @@ body.tutor #toast{z-index:5}
       clock = P.advanceClock(clock, dt, song.bpm, st ? st.start : null);
     }
     countShow();
+    fx.suspend(mode !== "play");   // calibration draws as without effects
+    fx.step(dt, now);
+    if (fxDebug) fxReadout(dt, now);
     if (hintUntil && now > hintUntil) { $("hint").className = ""; hintUntil = 0; }
     place();
     draw(now);
     side();
     requestAnimationFrame(frame);
+  }
+
+  // The D key's readout: fps, the effects preset, the governor's level, live sparks and the effects' draw time.
+  function fxReadout(dt, now) {
+    if (dt > 0) fxFps += (1000 / dt - fxFps) * 0.1;
+    if (now < fxDebugAt) return;
+    fxDebugAt = now + 250;
+    $("fxdebug").textContent = "fps " + Math.round(fxFps) + "\nfx " + (fx.active ? FX.presetName(fxSetting).toLowerCase() : "off") + "\ngov " + (fx.active ? fx.gov.level : "-") +
+      "\nsparks " + fx.pool.live + "\ndraw " + fx.stats.draw.toFixed(1) + " ms";
   }
 
   function tempoTick(now) {
@@ -1557,12 +1644,20 @@ body.tutor #toast{z-index:5}
     var box = sheetBox(), areaTop = box ? box.y + box.h + Math.round(H * 0.012) : 0, falling = !box || curView() === "both";
     areaTop = Math.max(areaTop, tutorBottom());
     var ppb = (hitY - areaTop) / LOOKAHEAD;
+    // Light effects: only in play (calibration is Off). Aurora sits behind the canvas, so its strip is cleared, not painted.
+    var fxOn = fx.active, auroraOn = false;
+    if (fxOn) {
+      fx.layout(layout, keyTop, hitY, areaTop, Math.round((H - keyTop) * 0.62), W, H);
+      if (falling) { fxRect.x = c.left / DPR; fxRect.y = areaTop / DPR; fxRect.w = (c.right - c.left) / DPR; fxRect.h = (keyTop - areaTop) / DPR; }
+      fx.setAuroraRect(falling ? fxRect : null);
+      auroraOn = falling && fx.auroraShown();
+    }
     ctx.fillStyle = "#0b0f17"; ctx.fillRect(0, 0, W, H);
 
     // Lanes: faint lines at the white-key boundaries inside the strip.
     if (falling) {
-      ctx.fillStyle = "#121a28";
-      ctx.fillRect(c.left, areaTop, c.right - c.left, keyTop - areaTop);
+      if (auroraOn) ctx.clearRect(c.left, areaTop, c.right - c.left, keyTop - areaTop);
+      else { ctx.fillStyle = "#121a28"; ctx.fillRect(c.left, areaTop, c.right - c.left, keyTop - areaTop); }
       ctx.fillStyle = "#1a2333";
       for (var n = layout.low; n <= layout.high; n++) {
         var k = layout.keys[n];
@@ -1581,6 +1676,8 @@ body.tutor #toast{z-index:5}
     // While Hear it first plays, the keys sounding now are lit instead of the ones wait mode wants.
     var lp = listen && listen.plan, snd = lp ? P.sounding(lp, now - listen.t0) : {};
     for (var sn in snd) want[sn] = "sound";
+    if (fxOn) fxSync(snd, now); else fxSnd = {};
+    if (fxOn && falling) fx.drawBehind();
 
     // Falling notes, clipped at the hit line.
     if (song && session && mode === "play" && falling) {
@@ -1609,11 +1706,16 @@ body.tutor #toast{z-index:5}
             col = !mine ? (key.black ? hc.black : hc.white) : nt.start < curStart ? "#2b7a52" : isCur ? (want[nt.note] === "hit" ? "#3ddc84" : hc.want) : (key.black ? hc.black : hc.white);
           }
         }
+        // Light effects glow on the player's notes only; a judged note keeps its green or red (judged colours win).
+        var fxTone = col === "#2b7a52" || col === "#3ddc84" ? "ok" : col === "#7a2b35" ? "miss" : nt.hand === "left" ? "left" : "right";
+        var fxPlay = nt.start <= clock && nt.start + nt.length > clock;
+        if (fxOn && mine) fx.barHalo(key, top, bottom, fxTone, fxPlay);
         roundRect(key.x0 + gap, top + gap, key.x1 - key.x0 - 2 * gap, bottom - top - 2 * gap, Math.min(10 * DPR, (key.x1 - key.x0) / 3));
         ctx.globalAlpha = mine ? 1 : 0.22;
         ctx.fillStyle = col; ctx.fill();
         if (isCur && want[nt.note] !== "hit") { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
         if (nt.shifted) { ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
+        if (fxOn && mine) { fx.barCore(key, top, bottom, fxTone, fxPlay); ctx.globalAlpha = mine ? 1 : 0.22; }
         // Finger number at the bottom of the note's visible part, where it meets the key.
         var fs = Math.min((key.x1 - key.x0) * 0.8, 30 * DPR), seen = Math.min(bottom, hitY);
         if (fingersShown() && nt.finger && seen - top - 2 * gap > fs * 1.2) {
@@ -1651,17 +1753,22 @@ body.tutor #toast{z-index:5}
         if (held[m]) fill = mode === "play" ? (want[m] === "hit" || (fl === "#3ddc84") ? "#3ddc84" : fl || (kk.black ? "#3a4a66" : "#9fb3d1")) : "#4da3ff";
         else if (fl) fill = fl;
         var x0 = Math.round(kk.x0), x1 = Math.round(kk.x1);
+        // Light effects: a pressed key sinks and takes its hand's colour (not over a judgement colour); a Hear it first key gets a rim.
+        var fxLook = fxOn ? fx.keyLook(m, kk, fill, !!fl, now) : null, sink = 0;
+        if (fxLook) { fill = fxLook.fill; sink = fxLook.sink; }
         ctx.fillStyle = fill;
-        if (kk.black) ctx.fillRect(x0, keyTop, x1 - x0, blackH);
+        if (kk.black) ctx.fillRect(x0, keyTop + sink, x1 - x0, blackH - sink);
         else {
-          ctx.fillRect(x0 + 1, keyTop, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop);
+          ctx.fillRect(x0 + 1, keyTop + sink, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop - sink);
         }
+        if (fxLook) fx.keyDecor(fxLook, x0, x1, kk.black ? blackH : H - keyTop);
         // The lit key carries the finger that plays it.
         var lf = !fingersShown() || held[m] ? 0 : want[m] === "want" ? current.fingers && current.fingers[m] : want[m] === "sound" ? snd[m].finger : 0;
         if (lf) fingerText(lf, (x0 + x1) / 2, kk.black ? keyTop + blackH * 0.72 : keyTop + (H - keyTop) * 0.8, Math.min((x1 - x0) * 0.75, 28 * DPR), "#07101d");
       }
     }
 
+    if (fxOn) fx.drawFront(now);
     if (tutor && tutor.runner) drawTutorKeys(keyTop, blackH, now);
     if (box) drawSheet(box, now, current, lo, hi, lp, snd);
 
@@ -1972,6 +2079,8 @@ body.tutor #toast{z-index:5}
     } catch (e) {}
   }
 
+  fx.setSetting(fxSetting); fx.setIntensity(fxIntensity); fx.attachAurora($("aurora"));
+  if (fxDebug) $("fxdebug").style.display = "block";
   resize();
   window.addEventListener("resize", resize);
   // Closing or leaving the page ends the whole song on the keyboard (the link page also stops when chunks stop coming).

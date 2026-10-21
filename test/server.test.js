@@ -191,6 +191,7 @@ async function waitForServer() {
       { stop: true },
     ]);
     assert.strictEqual((await request("POST", "/api/piano/control", { cmd: "listenAll" })).status, 200, "the link page can ask the TV to play the whole song");
+    for (const cmd of ["fx", "fxIntensity"]) assert.strictEqual((await request("POST", "/api/piano/control", { cmd, id: "lite" })).status, 200, "the link page can set the light effects: " + cmd);
     hear.stop();
     // Pages open for long learn when the server's code changed (the build id), the wall page does not need it.
     const tvB = listen("tv"), linkB = listen("link"), wallB = listen("wall");
