@@ -192,6 +192,13 @@ async function waitForServer() {
     ]);
     assert.strictEqual((await request("POST", "/api/piano/control", { cmd: "listenAll" })).status, 200, "the link page can ask the TV to play the whole song");
     hear.stop();
+    // Pages open for long learn when the server's code changed (the build id), the wall page does not need it.
+    const tvB = listen("tv"), linkB = listen("link"), wallB = listen("wall");
+    await wait(300);
+    const ids = [tvB, linkB].map((l) => (l.events.find((e) => e.event === "build") || { data: {} }).data.id);
+    assert(ids[0] && ids[0] === ids[1], "TV and link page get the same build id on connect");
+    assert(!wallB.events.some((e) => e.event === "build"), "the wall page is not sent one");
+    tvB.stop(); linkB.stop(); wallB.stop();
 
     console.log("server tests passed");
   } finally {

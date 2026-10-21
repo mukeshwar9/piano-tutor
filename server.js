@@ -75,6 +75,17 @@ function presenceInfo() {
   return { tv, link, wall, device: presence.device, output: presence.output, input: presence.input, deviceAt: presence.deviceAt, lastInputAt: presence.lastInputAt, now: Date.now() };
 }
 
+// Identifies the code the pages are served: the server's start and the pages' files. Pages open for
+// longer than that, such as the TV's, load themselves again when it changes, so a deploy reaches them.
+const startedAt = Date.now();
+function buildId() {
+  const parts = [startedAt];
+  for (const f of ["piano.html", "piano-link.html", "piano-core.js", "piano-sheet.js", "switch.js", "pitch.js"]) {
+    try { const st = fs.statSync(path.join(ROOT, "public", f)); parts.push(Math.round(st.mtimeMs), st.size); } catch {}
+  }
+  return parts.join("-");
+}
+
 function pianoEvents(req, res, query) {
   const r = query.get("role");
   const role = r === "tv" || r === "wall" ? r : "link";
@@ -83,6 +94,7 @@ function pianoEvents(req, res, query) {
   res.write("retry: 2000\n\n");
   const client = { role, res };
   pianoClients.add(client);
+  if (role !== "wall") sse(res, "build", { id: buildId() });
   sse(res, "calibration", piano.readCalibration(config.pianoCalibration));
   sse(res, "light", bulb.info());
   if (role === "link" && presence.tvState) sse(res, "tv-state", presence.tvState);

@@ -724,6 +724,33 @@
     };
   }
 
+  // Why the whole song cannot start now ("" when it can): the page's mode and whether a song is open.
+  function wholeBlocker(mode, hasSong) {
+    if (mode !== "play") return "Finish the calibration first, then play the whole song";
+    if (!hasSong) return "No song is open yet";
+    return "";
+  }
+
+  // A request to the server for Hear it first (made at req.at) still counts as on its way for maxMs;
+  // after that the next press starts afresh instead of acting as a stop.
+  function listenPending(req, now, maxMs) {
+    return !!req && now - (req.at || 0) < maxMs;
+  }
+
+  // What a press of the hear key (remote Rewind, P) does, given st = { playing, tapAt }: playing is true
+  // while anything plays or is on its way; tapAt is when the last press started a bar (0: none). A second
+  // press within doubleMs of that one plays the whole song, the way for a remote whose held keys do not
+  // repeat. Otherwise it stops what plays, or starts the bar. Returns "whole", "stop" or "bar".
+  function hearKeyAction(st, now, doubleMs) {
+    if (st.tapAt && now - st.tapAt < doubleMs) return "whole";
+    return st.playing ? "stop" : "bar";
+  }
+
+  // True when the hear key, down since downAt (0: not held), has been held for holdMs (keys that repeat).
+  function hearHeld(downAt, now, holdMs) {
+    return !!downAt && now - downAt >= holdMs;
+  }
+
   // Notes the keyboard sends back while it plays what it was sent (local echo, MIDI thru) must not
   // count as the player's. expect() records each message sent; match() is true, once, for an
   // incoming message of the same kind and key within windowMs of when it was due.
@@ -909,7 +936,7 @@
     advanceClock: advanceClock, hint: hint, createSession: createSession,
     createTempoSession: createTempoSession, clampSpeed: clampSpeed, countIn: countIn,
     TEMPO_WINDOW_MS: TEMPO_WINDOW_MS, TEMPO_ON_MS: TEMPO_ON_MS, SPEED_MIN: SPEED_MIN, SPEED_MAX: SPEED_MAX, SPEED_STEP: SPEED_STEP,
-    wholeSongPlan: wholeSongPlan, songChunks: songChunks, songPlayer: songPlayer, WHOLE_CHUNK_MS: WHOLE_CHUNK_MS, WHOLE_AHEAD_MS: WHOLE_AHEAD_MS,
+    wholeBlocker: wholeBlocker, listenPending: listenPending, hearKeyAction: hearKeyAction, hearHeld: hearHeld, wholeSongPlan: wholeSongPlan, songChunks: songChunks, songPlayer: songPlayer, WHOLE_CHUNK_MS: WHOLE_CHUNK_MS, WHOLE_AHEAD_MS: WHOLE_AHEAD_MS,
     listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
     RAMP_STEP: RAMP_STEP, RAMP_TARGET: RAMP_TARGET, rampSpeed: rampSpeed, beatLengthMs: beatLengthMs, metronomeBeats: metronomeBeats, countInBeats: countInBeats,
   };

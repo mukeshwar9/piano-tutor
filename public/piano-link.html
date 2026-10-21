@@ -161,7 +161,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   <div class="btns" style="margin-top:8px">
     <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
   </div>
-  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (hold ⏪ on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
+  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (press ⏪ twice quickly or hold it on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
     <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
@@ -363,6 +363,13 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("light", function (m) { showLight(JSON.parse(m.data)); });
+    // The server runs newer code than this page was loaded with: load it again.
+    var build = null;
+    es.addEventListener("build", function (m) {
+      var id = JSON.parse(m.data).id;
+      if (build && build !== id) location.reload();
+      build = id;
+    });
     es.addEventListener("history", function () { loadSongs(); });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
@@ -417,6 +424,9 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     $("bLearn").textContent = s.learn ? "Close the lessons on the TV" : "Open the lessons on the TV";
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
+    if (s.listeningAll) clearTimeout(askTimer);
+    // What the TV says about the whole song (could not start, no sound, lost) shows once per message.
+    if ((s.wholeNote || "") !== shownWholeNote) { shownWholeNote = s.wholeNote || ""; if (shownWholeNote) $("listenStatus").textContent = shownWholeNote; }
     $("bListenAll").textContent = s.listeningAll ? "Stop the song" : "Hear the whole song";
     $("bListenAll").className = s.listeningAll ? "sel" : "pri";
     Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
@@ -439,7 +449,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
     listenShown = !!s.listening;
   }
-  var listenShown = false;
+  var listenShown = false, shownWholeNote = "";
 
   // ---------- Web MIDI ----------
 
@@ -854,7 +864,23 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   $("bProgress").onclick = function () { control("progress", 0, tvState && tvState.progress ? "off" : "on"); };
   $("bLearn").onclick = function () { control("learn", 0, tvState && tvState.learn ? "off" : "on"); };
   $("bListen").onclick = function () { control("listen"); };
-  $("bListenAll").onclick = function () { control("listenAll"); };
+  // Asks the TV to start or stop the whole song and says what happens: the button follows the TV's own
+  // state (tv-state), so if the TV does not answer the page says so instead of leaving the click silent.
+  var askTimer = null;
+  $("bListenAll").onclick = function () {
+    var was = !!(tvState && tvState.listeningAll), st = $("listenStatus");
+    st.textContent = was ? "Asking the TV to stop the song…" : "Asking the TV to play the whole song…";
+    clearTimeout(askTimer);
+    fetch("/api/piano/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd: "listenAll" }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.tv) { st.textContent = "No TV page is open: open /piano on the TV first."; return; }
+        askTimer = setTimeout(function () {
+          if (!!(tvState && tvState.listeningAll) === was) st.textContent = "The TV did not answer: its page may be older than this one. Reload /piano on the TV.";
+        }, 4000);
+      })
+      .catch(function () { st.textContent = "The server cannot be reached."; });
+  };
   Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
     b.onclick = function () { control("view", 0, b.dataset.view); };
   });

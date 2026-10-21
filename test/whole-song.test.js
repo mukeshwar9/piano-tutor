@@ -181,4 +181,27 @@ const msgs = chunks[1].events.length ? P.midiMessages(chunks[1].events, link0 + 
 assert(msgs.every((m) => m.time >= link0 + 4000), "the second chunk sounds from 4 s into the song");
 assert.deepStrictEqual(msgs[0].data[0], 0x90);
 
+// Why it cannot start: a calibration in progress or no song open says so instead of doing nothing.
+assert.strictEqual(P.wholeBlocker("play", true), "");
+assert(/calibration/.test(P.wholeBlocker("cal2", true)));
+assert(/No song/.test(P.wholeBlocker("play", false)));
+
+// A request on its way counts for a few seconds only, so a lost reply cannot turn the next press into a stop.
+assert(P.listenPending({ at: 1000 }, 3000, 5000));
+assert(!P.listenPending({ at: 1000 }, 6000, 5000), "stale after 5 s");
+assert(!P.listenPending(null, 1000, 5000));
+
+// The hear key: once starts the bar, again while it plays stops it, twice quickly plays the whole song, and a
+// press after the song started stops it. This is the remote path that needs no key repeat.
+assert.strictEqual(P.hearKeyAction({ playing: false, tapAt: 0 }, 10000, 500), "bar");
+assert.strictEqual(P.hearKeyAction({ playing: true, tapAt: 10000 }, 10300, 500), "whole", "a second press within 500 ms");
+assert.strictEqual(P.hearKeyAction({ playing: true, tapAt: 10000 }, 10499, 500), "whole");
+assert.strictEqual(P.hearKeyAction({ playing: true, tapAt: 10000 }, 10500, 500), "stop", "later it is a stop");
+assert.strictEqual(P.hearKeyAction({ playing: true, tapAt: 0 }, 10300, 500), "stop", "pressing while the whole song plays stops it");
+assert.strictEqual(P.hearKeyAction({ playing: false, tapAt: 0 }, 10300, 500), "bar");
+// Held keys that do repeat: 600 ms of holding is a long press; no hold, no long press.
+assert(!P.hearHeld(0, 99999, 600));
+assert(!P.hearHeld(1000, 1599, 600));
+assert(P.hearHeld(1000, 1600, 600));
+
 console.log("whole-song tests passed");

@@ -168,8 +168,12 @@ body.tutor #toast{z-index:5}
   var micMode = false;      // notes come from a microphone on the link page: wait mode is forgiving
   var listen = null;        // Hear it first while it plays: { plan, t0, clock, paused, label, whole, player }
   var listenReq = null, echoUntil = 0;  // listenReq: a request on its way, { whole, player } for the whole song
-  var LONG_PRESS_MS = 600;  // holding the hear key this long plays the whole song
+  var LONG_PRESS_MS = 600;  // holding the hear key this long plays the whole song (if the key repeats)
   var hearDownAt = 0;       // when the hear key went down (0: not held, or it already did its work)
+  var DOUBLE_PRESS_MS = 500; // pressing the hear key twice this fast plays the whole song (a held key may not repeat on the Fire Stick)
+  var hearTapAt = 0;        // when the hear key last started a bar (0: it did not, or the double press used it up)
+  var PENDING_MS = 5000;    // a request to the server older than this is given up on: the next press starts afresh
+  var wholeNote = "";       // why the whole song could not start or lost its sound, for the link page
   var fingers = rememberedFingers();  // finger numbers on the falling notes and lit keys
   var playMode = "wait", playSpeed = 1;  // what a finished play is recorded as (tempo mode sets both)
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
@@ -441,12 +445,13 @@ body.tutor #toast{z-index:5}
   // lights each key as it sounds, then puts the song back where it was waiting. Pressing it again stops.
   function toggleListen() {
     if (mode !== "play" || !session || !song) return;
-    if (listen || listenReq) return stopListen(true);
+    if (listen || pendingListen()) return stopListen(true);
+    listenReq = null;
     var bars = P.barCount(song);
     var from = loop ? loop.from : Math.min(bars, P.barOf(song, playingAt())), to = loop ? loop.to : from;
     var plan = P.listenPlan(song, { hand: session.hand, from: from, to: to, speed: tempo ? speed : 100 });
     if (!plan.events.length) { toast("Nothing to hear in " + barsText(plan)); return; }
-    var req = listenReq = {};
+    var req = listenReq = { at: Date.now() };
     var events = plan.events.map(function (e) { return { note: e.note, at: e.at, dur: e.dur }; });
     postJson("/api/piano/listen", { events: events }, function (err, r) {
       if (req !== listenReq) return;
@@ -455,16 +460,20 @@ body.tutor #toast{z-index:5}
     });
   }
 
+  // The request for Hear it first that is still on its way, if it was sent recently enough to be waited for.
+  function pendingListen() { return P.listenPending(listenReq, Date.now(), PENDING_MS) ? listenReq : null; }
+
   // The TV side of Hear it first once the keyboard has been told: the badge, the clock and the lit keys.
   function beginListen(plan, label, whole, player, err, r) {
     listen = { plan: plan, t0: Date.now() + P.LISTEN_LEAD_MS, clock: clock, paused: paused, label: label, whole: whole, player: player, shownBar: 0 };
     held = {};
-    var sub = err ? "Server unreachable: lights only" : !(r && r.output) ? "No keyboard output on the link page: lights only" : whole ? "press the key again, or play any key, to stop" : "then it is your turn";
+    var sub = err ? "Server unreachable: lights only" : !(r && r.link) ? "No link page is open: lights only" : !(r && r.output) ? "No keyboard output on the link page: lights only" : whole ? "press the key again, or play any key, to stop" : "then it is your turn";
     $("toast").className = "";
     $("listen").innerHTML = whole
       ? "♪ Playing the whole song · " + HAND_NAMES[plan.hand].toLowerCase() + '<span class="sub" id="wholeBar"></span><div class="meter"><i id="wholeFill"></i></div><span class="sub">' + esc(sub) + "</span>"
       : "♪ Listen · " + esc(label) + " · " + HAND_NAMES[plan.hand].toLowerCase() + '<span class="sub">' + esc(sub) + "</span>";
     $("listen").className = whole ? "on whole" : "on";
+    wholeNote = whole && sub.indexOf("lights only") >= 0 ? sub : "";
     lastSide = "";
     report();
   }
@@ -474,18 +483,21 @@ body.tutor #toast{z-index:5}
   // speed setting in tempo mode). The link page gets it a few seconds at a time. Again, any key played on
   // the keyboard, or leaving the song stops it.
   function toggleWhole() {
-    if (mode !== "play" || !session || !song) return;
-    if (listen || listenReq) return stopListen(true);
+    if (listen || pendingListen()) return stopListen(true);
+    listenReq = null;
     startWhole();
   }
 
   function startWhole() {
-    if (mode !== "play" || !session || !song) return;
+    var why = P.wholeBlocker(mode, !!(session && song));
+    if (why) { wholeNote = why; toast(why); report(); return; }
     var plan = P.wholeSongPlan(song, { hand: session.hand, speed: tempo ? speed : 100 });
-    if (!plan.events.length) { toast("Nothing to hear in this song"); return; }
+    if (!plan.events.length) { wholeNote = "Nothing to hear in this song"; toast(wholeNote); report(); return; }
     // A bar already playing is handed over: the first chunk replaces whatever the keyboard is still playing.
     if (listen || listenReq) stopListen(false);
-    var req = listenReq = { whole: true }, first = true;
+    wholeNote = "";
+    toast("Starting the whole song…");
+    var req = listenReq = { whole: true, at: Date.now() }, first = true;
     var player = req.player = P.songPlayer(plan, {
       now: Date.now, setTimer: function (fn, ms) { return setTimeout(fn, ms); }, clearTimer: clearTimeout,
       send: function (chunk, done) {
@@ -493,6 +505,7 @@ body.tutor #toast{z-index:5}
           if (first) {
             first = false;
             if (!err && req === listenReq && !player.ended()) { listenReq = null; beginListen(plan, "the whole song", true, player, err, r); }
+            else if (err) wholeNote = "Could not start the whole song: " + (err === "network" ? "the server cannot be reached" : err);
           }
           done(err);
         });
@@ -501,11 +514,15 @@ body.tutor #toast{z-index:5}
       onEnd: function (reason) {
         if (reason !== "lost") return;
         // The server can no longer be reached: the song ends here, on the TV as well.
+        var started = listen && listen.player === player;
         if (listenReq === req) listenReq = null;
-        if (listen && listen.player === player) stopListen(false);
-        toast("Lost the connection: stopped");
+        if (started) stopListen(false);
+        if (!started) toast(wholeNote || "Could not start the whole song");
+        else { wholeNote = "Lost the connection: the song stopped"; toast(wholeNote); }
+        report();
       },
     });
+    report();
     player.start(Date.now() + P.LISTEN_LEAD_MS);
   }
 
@@ -857,7 +874,7 @@ body.tutor #toast{z-index:5}
   // confirms, Back steps back. In play, ◀ ▶ pick the previous / next song (or move the loop while
   // looping), ▲ (or H) cycles right / left / both hands, ⏯ (or L) loops the current bar or stops the
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
-  // (Hear it first; held down, or W, it plays the whole song), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
+  // (Hear it first; pressed twice quickly, or held down, or W, it plays the whole song), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
   // between falling notes, sheet music and both, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
   // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
@@ -868,11 +885,17 @@ body.tutor #toast{z-index:5}
     if (tutor && tutorKey(e)) return;
     if (TVSwitch.isListenKey(e)) {
       e.preventDefault();
-      if (!e.repeat) { var wasListening = !!(listen || listenReq); toggleListen(); hearDownAt = wasListening ? 0 : Date.now(); }
-      // Held down: the bar it started gives way to the whole song.
-      else if (hearDownAt && Date.now() - hearDownAt >= LONG_PRESS_MS) { hearDownAt = 0; startWhole(); }
+      if (!e.repeat) {
+        var now = Date.now(), playing = !!(listen || pendingListen());
+        var act = P.hearKeyAction({ playing: playing, tapAt: hearTapAt }, now, DOUBLE_PRESS_MS);
+        hearTapAt = 0; hearDownAt = 0;
+        if (act === "whole") startWhole();
+        else if (act === "stop") stopListen(true);
+        else { toggleListen(); hearDownAt = now; if (listen || listenReq) hearTapAt = now; }
+      }
+      // Held down (on a remote whose keys repeat): the bar it started gives way to the whole song.
+      else if (P.hearHeld(hearDownAt, Date.now(), LONG_PRESS_MS)) { hearDownAt = 0; hearTapAt = 0; startWhole(); }
     }
-    else if ((k === "w" || k === "W") && mode === "play") { if (!e.repeat) toggleWhole(); }
     else if (TVSwitch.isSwitchKey(e)) { e.preventDefault(); if (!e.repeat) toWall(); }
     else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
     else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(-1) : stepSong(-1); } else nudge(-step); e.preventDefault(); }
@@ -1307,7 +1330,17 @@ body.tutor #toast{z-index:5}
         if (ev.on && ev.velocity > 0) noteOn(ev.note); else noteOff(ev.note);
       }
     });
-    es.addEventListener("control", function (m) { control(JSON.parse(m.data)); });
+    es.addEventListener("control", function (m) {
+      // A command that fails must say so on screen, not only in a console nobody sees.
+      try { control(JSON.parse(m.data)); } catch (err) { toast("Command failed: " + (err && err.message || err)); }
+    });
+    // The server runs newer code than this page was loaded with (it was updated or restarted): load it again.
+    var build = null;
+    es.addEventListener("build", function (m) {
+      var id = JSON.parse(m.data).id;
+      if (build && build !== id) location.reload();
+      build = id;
+    });
     es.addEventListener("switch", function (m) {
       try { if (TVSwitch.shouldMove(JSON.parse(m.data).to, "piano")) toWall(); } catch (e) {}
     });
@@ -1384,7 +1417,7 @@ body.tutor #toast{z-index:5}
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!(listen && listen.whole), fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -1903,7 +1936,7 @@ body.tutor #toast{z-index:5}
         (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1)) +
         (session.tempo && ramp ? " · ramp " + session.speed + "% → " + rampTarget + "%" : "");
     }
-    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song or lessons · ⏯ loop bar · ⏪ hear the bar") + " · hold ⏪ (W) whole song · ▲ hand · ⏩ wall";
+    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song or lessons · ⏯ loop bar · ⏪ hear the bar") + " · ⏪⏪ (W) whole song · ▲ hand · ⏩ wall";
   }
 
   // ---------- helpers ----------
