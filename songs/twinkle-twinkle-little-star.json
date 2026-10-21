@@ -3,6 +3,7 @@
   "composer": "Traditional, melody Ah vous dirai-je, maman (c. 1761)",
   "license": "Public domain",
   "source": "Melody and a simple root-note left hand arranged for this project, C major, with beginner fingering",
+  "difficulty": 1,
   "hand": "right",
   "bpm": 80,
   "beatsPerBar": 4,

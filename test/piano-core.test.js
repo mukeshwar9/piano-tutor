@@ -62,8 +62,9 @@ assert.strictEqual(fitted.shifted, 2);
 
 // Song file loader: the shipped song loads, fits 61 keys and is in C major around middle C.
 const songs = piano.loadSongs(path.join(__dirname, "..", "songs"));
-assert.deepStrictEqual(songs.map((x) => x.id), ["ode-to-joy", "twinkle-twinkle-little-star"]);
-const ode = songs[0];
+assert(songs.some((x) => x.id === "ode-to-joy"), "ode-to-joy missing");
+assert(songs.some((x) => x.id === "twinkle-twinkle-little-star"), "twinkle-twinkle-little-star missing");
+const ode = songs.find((x) => x.id === "ode-to-joy");
 assert(!ode.error, ode.error);
 assert(ode.fits61);
 assert.strictEqual(ode.notes.length, 83);
@@ -74,7 +75,7 @@ assert.strictEqual(ode.beats, 64, "16 bars of 4/4");
 assert.strictEqual(P.noteName(ode.lowest), "G2");
 assert.strictEqual(P.noteName(ode.highest), "G4");
 // Twinkle Twinkle: 12 bars of 4/4, six 7-note phrases, right hand C4-A4, left hand F2-C3.
-const twinkle = songs[1];
+const twinkle = songs.find((x) => x.id === "twinkle-twinkle-little-star");
 assert(!twinkle.error, twinkle.error);
 assert(twinkle.fits61);
 assert.strictEqual(twinkle.notes.length, 64);

@@ -92,7 +92,7 @@ Metronome, count-in and speed ramp: the link page's Metronome button (or K) clic
 
 Sheet music: a grand staff across the top of the strip, right hand on the treble staff and left hand on the bass staff, 2 to 4 bars wide, drawn with VexFlow from the same song data. The step being waited for is amber with an amber playhead, steps played turn green, or red after a wrong key, and the hand not being practised is dimmed. Bar numbers are the ones the practice loop uses and the loop's bars are shaded. Three views, remembered by the TV browser: Falling notes, Both (the default) and Sheet music; switch with the link page's view buttons or V. The key signature comes from the song's `key` or the major key that fits the notes best, the time signature from `beatsPerBar`, and note starts and ends are snapped to sixteenths so MIDI imports come out readable.
 
-Finger numbers: songs can give each note a finger, 1 (thumb) to 5 (little finger), drawn on each falling note and lit key; the link page's Finger numbers button (or F) hides or shows them. Both shipped songs carry beginner fingering.
+Finger numbers: songs can give each note a finger, 1 (thumb) to 5 (little finger), drawn on each falling note and lit key; the link page's Finger numbers button (or F) hides or shows them. All shipped songs carry beginner fingering.
 
 Score history: every finished play (a whole song, or a practice loop that reached its clean passes) is saved on the server in `piano-history.json` (the newest 2000 plays are kept): song, hand mode, wait or tempo mode and speed, loop range, accuracy, timing, best streak, wrong keys, duration and date. The TV shows the song's best accuracy and streak, a results card when a song or loop finishes, and a progress screen (the link page's Show progress on the TV button, or S) with every song's best scores. Timing is the share of struck notes within 110 ms of their time (the same green "on time" as tempo mode), plus the average early or late offset in ms (under 15 ms reads as on the beat). It is recorded only in tempo mode, at any speed, since wait mode waits for the player and shows timing as n/a. Missed notes count against accuracy, not timing, and entries saved before timing existed load with no timing. The results card shows it, and the progress screen shows each song's best timing from whole-song tempo plays. A song is **mastered** when one whole-song play in Both hands at full speed reached 95% accuracy or better.
 
@@ -105,6 +105,28 @@ The link page's Input card switches between Keyboard cable (MIDI) and Microphone
 - Detection runs in the browser (`public/pitch.js`): YIN pitch detection on the signal taken down to about 12 kHz, an energy envelope for onsets, a noise gate that follows the room's noise floor, and a comb filter that cancels the previous note still ringing.
 - One note at a time is reliable; chords are not (a microphone hears one pitch). So while the input is the microphone the TV is forgiving: the right note name an octave up or down counts, only a chord's top note is waited for, and the other hand is not counted wrong. Practising one hand at a time works best.
 - Microphone access (and Web MIDI on a phone) needs a secure page on any device other than the server's own `localhost`: put the server behind an HTTPS reverse proxy (Caddy, nginx or similar) and open the link page through it. Keep the page in front with the screen on; phones pause the microphone in the background.
+
+## Songs
+
+Thirteen songs ship in `songs/`, listed here from easiest to hardest:
+
+| Song | Composer / origin | Level (1-5) | Time | Hands |
+| --- | --- | --- | --- | --- |
+| Mary Had a Little Lamb | Traditional (American, c. 1830) | 1 | 4/4 | Right |
+| Frere Jacques | Traditional (French, 18th century) | 1 | 4/4 | Right |
+| London Bridge Is Falling Down | Traditional (English) | 1 | 4/4 | Right |
+| Au clair de la lune | Traditional (French, 18th century) | 1 | 4/4 | Right |
+| Twinkle Twinkle Little Star | Traditional, "Ah vous dirai-je, maman" (c. 1761) | 1 | 4/4 | Both |
+| Ode to Joy | Beethoven, Symphony No. 9 (1824) | 2 | 4/4 | Both |
+| When the Saints Go Marching In | Traditional (African-American spiritual) | 2 | 4/4 | Both |
+| Jingle Bells | James Lord Pierpont (1857) | 2 | 4/4 | Both |
+| Amazing Grace | Traditional (American), tune New Britain (1829) | 2 | 3/4 | Both |
+| Minuet in G | Christian Petzold (c. 1725) | 3 | 3/4 | Both |
+| Greensleeves | Traditional (English, 16th century) | 3 | 6/8 | Right |
+| Canon in D | Johann Pachelbel (c. 1680-1706) | 3 | 4/4 | Both |
+| Für Elise | Beethoven (1810) | 4 | 3/8 | Both |
+
+Each JSON song carries an optional `difficulty` from 1 (easiest) to 5; the TV does not use it yet and lists songs alphabetically by file name. The new songs are short beginner arrangements in easy keys, transposed to C where the original is in another key.
 
 ## Adding songs
 
@@ -125,7 +147,7 @@ JSON songs:
 }
 ```
 
-Each note is `[name, startBeat, lengthBeats]`, `[name, startBeat, lengthBeats, hand]` with hand `"R"` or `"L"`, or either form with a finger added: `[name, startBeat, lengthBeats, hand, finger]`, or `[name, startBeat, lengthBeats, finger]` (names like `C4`, `F#3`, `Bb2`; C4 is middle C). A note without a hand belongs to the song's `hand` (right when absent). Notes starting on the same beat form a chord. Notes outside the calibrated range are moved by an octave and outlined in violet. `key` is optional and only sets the sheet music's key signature.
+Each note is `[name, startBeat, lengthBeats]`, `[name, startBeat, lengthBeats, hand]` with hand `"R"` or `"L"`, or either form with a finger added: `[name, startBeat, lengthBeats, hand, finger]`, or `[name, startBeat, lengthBeats, finger]` (names like `C4`, `F#3`, `Bb2`; C4 is middle C). A note without a hand belongs to the song's `hand` (right when absent). Notes starting on the same beat form a chord. Notes outside the calibrated range are moved by an octave and outlined in violet. `key` is optional and only sets the sheet music's key signature. `difficulty` is optional too, 1 (easiest) to 5, and is not used by the TV yet.
 
 - MIDI (format 0 or 1): each track (and channel) is a part; with two or more parts the highest-sounding one is the right hand and the lowest the left. A one-part file is split by pitch at middle C. Timing is snapped to sixteenths (or eighth-note triplets), near-simultaneous notes become chords, ghost notes and drums are dropped.
 - MusicXML: staff 1 of a two-staff part is the right hand and staff 2 the left. Tempo, bars, chords, ties and `<fingering>` are read; grace notes are left out; repeats are played as written once.
@@ -146,10 +168,10 @@ The TV can share the screen with another page, such as a dashboard on another se
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), sheet music (`piano-sheet`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 
 - This project: MIT, see `LICENSE`.
 - VexFlow 4.2.5 (MIT, `public/vendor/vexflow-LICENSE.txt`) is vendored as `public/vendor/vexflow-4.2.5-bravura.js`: the npm package's `build/cjs/vexflow-bravura.js`, unmodified (sha256 `d632111c9dc0eedc095e22b1a61913c23c5d166865e4fece61e1554535de355e`), with the Bravura music font built in (SIL Open Font License 1.1), so the TV needs no internet.
-- The shipped songs are public domain: Ode to Joy (Ludwig van Beethoven, Symphony No. 9, 1824) and Twinkle Twinkle Little Star (traditional, the melody of "Ah vous dirai-je, maman", c. 1761). The arrangements and fingering in `songs/` are part of this project.
+- The shipped songs are all public domain: traditional melodies (Mary Had a Little Lamb, Frere Jacques, London Bridge, Au clair de la lune, Twinkle Twinkle Little Star, Greensleeves, When the Saints Go Marching In) and works by composers who died long before 1900: Ludwig van Beethoven (Ode to Joy, 1824; Für Elise, 1810; d. 1827), Johann Pachelbel (Canon in D, c. 1680-1706; d. 1706), Christian Petzold (Minuet in G, c. 1725; d. 1733) and James Lord Pierpont (Jingle Bells, 1857; d. 1893). Amazing Grace is the melody of the tune New Britain (1829) only, without lyrics. The arrangements and fingering in `songs/` are part of this project, and each file's `source` field names where its melody was checked.
