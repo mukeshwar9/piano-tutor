@@ -1,0 +1,14 @@
+{
+  "id": "beats-and-note-lengths",
+  "title": "Beats and note lengths",
+  "goal": "Keep a steady beat and play notes that last one, two and four beats.",
+  "steps": [
+    { "type": "explain", "title": "The beat", "text": "Music has a steady beat, like a clock or a heartbeat. We count it 1 2 3 4, 1 2 3 4. The next step clicks the beat for you." },
+    { "type": "rhythm", "title": "Play on the click", "text": "Count 1 2 3 4 with the clicks, then play middle C on every click.", "notes": [["C4", 0, 1, 1], ["C4", 1, 1, 1], ["C4", 2, 1, 1], ["C4", 3, 1, 1], ["C4", 4, 1, 1], ["C4", 5, 1, 1], ["C4", 6, 1, 1], ["C4", 7, 1, 1]], "hand": "right", "bpm": 60, "beatsPerBar": 4 },
+    { "type": "explain", "title": "Long and short notes", "text": "A note can last 1 beat (a quarter note), 2 beats (a half note) or 4 beats (a whole note). You play it on its first beat and wait for the rest.", "highlight": ["C4"], "fingers": { "C4": 1 } },
+    { "type": "rhythm", "title": "Quarter notes", "text": "One beat each. Play on every click: 1 2 3 4.", "notes": [["C4", 0, 1, 1], ["C4", 1, 1, 1], ["C4", 2, 1, 1], ["C4", 3, 1, 1], ["C4", 4, 1, 1], ["C4", 5, 1, 1], ["C4", 6, 1, 1], ["C4", 7, 1, 1]], "hand": "right", "bpm": 60, "beatsPerBar": 4 },
+    { "type": "rhythm", "title": "Half notes", "text": "Two beats each. Play on 1, hold and count 2, play on 3, hold and count 4.", "notes": [["C4", 0, 2, 1], ["C4", 2, 2, 1], ["C4", 4, 2, 1], ["C4", 6, 2, 1]], "hand": "right", "bpm": 60, "beatsPerBar": 4 },
+    { "type": "rhythm", "title": "Whole notes", "text": "Four beats each. Play on 1 and hold the key while you count 2 3 4.", "notes": [["C4", 0, 4, 1], ["C4", 4, 4, 1]], "hand": "right", "bpm": 60, "beatsPerBar": 4 },
+    { "type": "check", "title": "Check: keep the beat", "text": "Four short notes, then two half notes, then a whole note.", "notes": [["C4", 0, 1, 1], ["C4", 1, 1, 1], ["C4", 2, 1, 1], ["C4", 3, 1, 1], ["C4", 4, 2, 1], ["C4", 6, 2, 1], ["C4", 8, 4, 1]], "hand": "right", "bpm": 60, "beatsPerBar": 4, "tempo": 100, "metronome": true, "metric": "timing", "pass": 0.75 }
+  ]
+}

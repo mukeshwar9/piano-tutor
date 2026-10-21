@@ -130,6 +130,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
 </div>
 
 <div class="card">
+  <div class="lbl">Tutorial</div>
+  <div class="btns"><button id="bLearn" class="pri">Open the lessons on the TV</button></div>
+  <div class="sub" style="margin-top:8px">Ten lessons from the very first step. On the TV remote, step ◀ or ▶ past the end of the song list.</div>
+</div>
+
+<div class="card">
   <div class="lbl">Practice</div>
   <div class="btns">
     <button id="bRight" data-hand="right">Right hand</button><button id="bLeft" data-hand="left">Left hand</button><button id="bBoth" data-hand="both">Both hands</button>
@@ -408,6 +414,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     }
     $("bLoopOff").disabled = !s.loop;
     $("bProgress").textContent = s.progress ? "Close progress on the TV" : "Show progress on the TV";
+    $("bLearn").textContent = s.learn ? "Close the lessons on the TV" : "Open the lessons on the TV";
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
     $("bListenAll").textContent = s.listeningAll ? "Stop the song" : "Hear the whole song";
@@ -845,6 +852,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   $("bLoop").onclick = function () { loopControl(Number($("loopFrom").value), Number($("loopTo").value)); };
   $("bLoopOff").onclick = function () { loopControl(0, 0); };
   $("bProgress").onclick = function () { control("progress", 0, tvState && tvState.progress ? "off" : "on"); };
+  $("bLearn").onclick = function () { control("learn", 0, tvState && tvState.learn ? "off" : "on"); };
   $("bListen").onclick = function () { control("listen"); };
   $("bListenAll").onclick = function () { control("listenAll"); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {

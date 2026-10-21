@@ -1,0 +1,14 @@
+{
+  "id": "first-tunes-right-hand",
+  "title": "Your first tunes",
+  "goal": "Play Hot Cross Buns and Mary Had a Little Lamb with your right hand.",
+  "steps": [
+    { "type": "explain", "title": "Hot Cross Buns", "text": "An old street song that uses only three notes: E, D and C. Thumb on C, then 2 on D and 3 on E.", "highlight": ["C4", "D4", "E4"], "fingers": { "C4": 1, "D4": 2, "E4": 3 }, "hear": ["E4", "D4", "C4"] },
+    { "type": "play", "title": "Hot Cross Buns, slowly", "text": "Play each lit key. The song waits for you.", "notes": [["E4", 0, 1, 3], ["D4", 1, 1, 2], ["C4", 2, 2, 1], ["E4", 4, 1, 3], ["D4", 5, 1, 2], ["C4", 6, 2, 1], ["C4", 8, 0.5, 1], ["C4", 8.5, 0.5, 1], ["C4", 9, 0.5, 1], ["C4", 9.5, 0.5, 1], ["D4", 10, 0.5, 2], ["D4", 10.5, 0.5, 2], ["D4", 11, 0.5, 2], ["D4", 11.5, 0.5, 2], ["E4", 12, 1, 3], ["D4", 13, 1, 2], ["C4", 14, 2, 1]], "hand": "right", "bpm": 60 },
+    { "type": "repeat", "title": "With the click", "text": "Now the tune keeps time and clicks the beat. Play on the clicks.", "tempo": 70, "metronome": true },
+    { "type": "explain", "title": "Mary Had a Little Lamb", "text": "Another tune everybody knows. It reaches up to G with your little finger (5), so keep your hand in its C position.", "highlight": ["C4", "D4", "E4", "G4"], "fingers": { "C4": 1, "D4": 2, "E4": 3, "G4": 5 }, "hear": ["E4", "D4", "C4", "D4", "E4", "E4", "E4"] },
+    { "type": "play", "title": "Mary, slowly", "text": "The first four lines of the tune.", "notes": [["E4", 0, 1, 3], ["D4", 1, 1, 2], ["C4", 2, 1, 1], ["D4", 3, 1, 2], ["E4", 4, 1, 3], ["E4", 5, 1, 3], ["E4", 6, 2, 3], ["D4", 8, 1, 2], ["D4", 9, 1, 2], ["D4", 10, 2, 2], ["E4", 12, 1, 3], ["G4", 13, 1, 5], ["G4", 14, 2, 5]], "hand": "right", "bpm": 60 },
+    { "type": "repeat", "title": "Mary with the click", "text": "The same tune again, in time with the clicks.", "tempo": 70, "metronome": true },
+    { "type": "check", "title": "Check: Mary", "notes": [["E4", 0, 1, 3], ["D4", 1, 1, 2], ["C4", 2, 1, 1], ["D4", 3, 1, 2], ["E4", 4, 1, 3], ["E4", 5, 1, 3], ["E4", 6, 2, 3], ["D4", 8, 1, 2], ["D4", 9, 1, 2], ["D4", 10, 2, 2], ["E4", 12, 1, 3], ["G4", 13, 1, 5], ["G4", 14, 2, 5]], "hand": "right", "bpm": 60, "blind": true, "pass": 0.8 }
+  ]
+}

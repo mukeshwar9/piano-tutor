@@ -1,0 +1,12 @@
+{
+  "id": "your-first-piece",
+  "title": "Your first piece",
+  "goal": "Play Ode to Joy all the way through, then look back at what you have learned.",
+  "steps": [
+    { "type": "explain", "title": "Ode to Joy", "text": "A tune by Beethoven that has made people happy for 200 years. You know every skill it needs. First the tune with your right hand, then both hands." },
+    { "type": "play", "title": "Right hand", "text": "Play the whole tune. Thumb on E position: your fingers are on the lit keys.", "song": { "id": "ode-to-joy" }, "hand": "right" },
+    { "type": "play", "title": "Both hands", "text": "Now add the left hand underneath. Slow and steady.", "song": { "id": "ode-to-joy" }, "hand": "both" },
+    { "type": "check", "title": "Check: play it in time", "text": "The tune keeps time, a little slower than the real thing. Your timing score is on the next card.", "song": { "id": "ode-to-joy" }, "hand": "both", "tempo": 65, "pass": 0.8 },
+    { "type": "explain", "title": "What you can do now", "text": "Well done, you have finished the first ten lessons.", "items": ["Find any key by its name", "Use the right hand and the left hand", "Keep a steady beat and count rests", "Read notes on the staff", "Play two hands together"], "next": "Next time: sharps and flats, more scales and chords." }
+  ]
+}

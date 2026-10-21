@@ -1,0 +1,15 @@
+{
+  "id": "hands-together",
+  "title": "Hands together",
+  "goal": "Play the start of Twinkle Twinkle Little Star with both hands.",
+  "steps": [
+    { "type": "explain", "title": "Two hands at once", "text": "Playing with both hands is like patting your head and rubbing your tummy. It feels odd at first. We go slowly, one hand at a time, then together." },
+    { "type": "explain", "title": "Two colours", "text": "Blue notes are for your right hand and pink notes for your left. The right hand sings the tune. The left holds a long low note underneath." },
+    { "type": "play", "title": "Right hand, bars 1 and 2", "text": "First the tune alone, with your right hand.", "song": { "id": "twinkle-twinkle-little-star", "from": 1, "to": 2 }, "hand": "right" },
+    { "type": "play", "title": "Left hand, bars 1 and 2", "text": "Now the low notes alone, with your left hand.", "song": { "id": "twinkle-twinkle-little-star", "from": 1, "to": 2 }, "hand": "left" },
+    { "type": "play", "title": "Both hands, bars 1 and 2", "text": "Put them together. Take your time, the song waits for you.", "song": { "id": "twinkle-twinkle-little-star", "from": 1, "to": 2 }, "hand": "both" },
+    { "type": "play", "title": "Right hand, bars 3 and 4", "text": "The next two bars, tune first.", "song": { "id": "twinkle-twinkle-little-star", "from": 3, "to": 4 }, "hand": "right" },
+    { "type": "play", "title": "Both hands, bars 3 and 4", "text": "Now both hands on bars 3 and 4.", "song": { "id": "twinkle-twinkle-little-star", "from": 3, "to": 4 }, "hand": "both" },
+    { "type": "check", "title": "Check: bars 1 to 4, both hands", "text": "The tune keeps time now, slowly. Both hands together.", "song": { "id": "twinkle-twinkle-little-star", "from": 1, "to": 4 }, "hand": "both", "tempo": 60, "pass": 0.8 }
+  ]
+}

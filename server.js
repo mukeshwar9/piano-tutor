@@ -2,7 +2,7 @@
 "use strict";
 // Piano tutor server: plain Node, zero runtime deps.
 // Routes: /piano (TV), /piano/link (MIDI or microphone input page), /api/piano/* (songs, calibration,
-// score history, the room light's switch and the note relay: POST from the link page, Server-Sent Events to the TV),
+// score history, tutorial lessons and progress, the room light's switch and the note relay: POST from the link page, Server-Sent Events to the TV),
 // POST /api/switch (TV page switch), /api/config, /api/debug (viewport beacon, logged).
 // Songs are JSON, MIDI or MusicXML files in songs/, watched for changes; the link page uploads new ones.
 const http = require("http");
@@ -12,6 +12,7 @@ const piano = require("./piano.js");
 const tvSwitch = require("./public/switch.js");
 const bulbLight = require("./bulb.js");
 const lightColor = require("./light.js");
+const lessonStore = require("./lessons.js");
 
 const ROOT = __dirname;
 
@@ -27,6 +28,8 @@ function loadConfig() {
     pianoCalibration: calibration,
     pianoHistory: process.env.PIANO_HISTORY || path.join(path.dirname(calibration), "piano-history.json"),
     pianoLight: process.env.PIANO_LIGHT || path.join(path.dirname(calibration), "piano-light.json"),
+    lessonsDir: process.env.PIANO_LESSONS_DIR || path.join(ROOT, "lessons"),
+    pianoProgress: process.env.PIANO_PROGRESS || path.join(path.dirname(calibration), "piano-progress.json"),
     // The room light's bulb: { host, port?, enabled? } from config.json only; no host, no light.
     bulb: file.bulb && typeof file.bulb === "object" ? file.bulb : {},
   };
@@ -111,7 +114,7 @@ async function readJson(req, limit = 64 * 1024) {
   try { return JSON.parse(buf.toString("utf8") || "{}"); } catch { throw new Error("invalid JSON"); }
 }
 
-const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll"];
+const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn"];
 
 async function pianoPost(url, req, res) {
   let body;
@@ -213,6 +216,12 @@ async function pianoPost(url, req, res) {
     try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled, palette: info.palette }) + "\n"); } catch {}
     return json(res, 200, info);
   }
+  if (url === "/api/piano/progress") {
+    // Tutorial progress from the TV: { lesson, action: "step" | "attempt" | "pass", step?, score? }.
+    let progress;
+    try { progress = lessonStore.updateProgress(config.pianoProgress, lessonStore.loadLessons(config.lessonsDir, config.songsDir), body); } catch (e) { return json(res, 400, { error: e.message }); }
+    return json(res, 200, { ok: true, progress });
+  }
   if (url === "/api/piano/calibration") {
     let cal;
     try { cal = piano.writeCalibration(config.pianoCalibration, body); } catch (e) { return json(res, 400, { error: e.message }); }
@@ -287,6 +296,15 @@ function pianoGet(url, qs, res) {
     const song = piano.loadSongs(config.songsDir).find((s) => s.id === id);
     return song ? json(res, song.error ? 422 : 200, song) : json(res, 404, { error: "no such song" });
   }
+  if (url === "/api/piano/lessons") {
+    return json(res, 200, { lessons: lessonStore.loadLessons(config.lessonsDir, config.songsDir).map(lessonStore.lessonSummary), progress: lessonStore.readProgress(config.pianoProgress) });
+  }
+  if (url.startsWith("/api/piano/lessons/")) {
+    const id = decodeURIComponent(url.slice("/api/piano/lessons/".length));
+    const lesson = lessonStore.loadLessons(config.lessonsDir, config.songsDir).find((l) => l.id === id);
+    return lesson ? json(res, lesson.error ? 422 : 200, lesson) : json(res, 404, { error: "no such lesson" });
+  }
+  if (url === "/api/piano/progress") return json(res, 200, { progress: lessonStore.readProgress(config.pianoProgress) });
   if (url === "/api/piano/calibration") return json(res, 200, { calibration: piano.readCalibration(config.pianoCalibration) });
   if (url === "/api/piano/light") return json(res, 200, bulb.info());
   if (url === "/api/piano/presence") return json(res, 200, presenceInfo());
@@ -304,7 +322,7 @@ function sendCached(res, type, body) {
   res.end(body);
 }
 const VEXFLOW = "/vendor/vexflow-4.2.5-bravura.js";
-const SCRIPTS = ["/piano-core.js", "/piano-sheet.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
+const SCRIPTS = ["/piano-core.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
 const json = (res, code, obj) => send(res, code, "application/json; charset=utf-8", JSON.stringify(obj));
 
 const server = http.createServer(async (req, res) => {

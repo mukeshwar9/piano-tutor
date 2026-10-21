@@ -62,6 +62,35 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #progress td.cur{color:var(--blue);font-weight:800}
 #progress .badge{color:var(--amber);font-weight:800}
 #progress .recent{margin-top:.8rem;font-size:.95rem;color:var(--txt2);line-height:1.5}
+/* Tutorial mode: every text is 1.6rem (32 px on a 1080-tall TV) or bigger. */
+#tutor{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(84rem,94%);background:rgba(19,26,39,.97);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.8rem;display:none;text-align:left}
+body.tutor #tutor{display:block}
+body.tutor #left,body.tutor #right,body.tutor #hint,body.tutor #panel{display:none}
+#tutor .tag{font-size:1.6rem;font-weight:700;color:var(--blue);letter-spacing:.06em;text-transform:uppercase}
+#tutor h1{font-size:2.6rem;font-weight:800;line-height:1.15;margin:.2rem 0 .4rem}
+#tutor .text{font-size:2rem;line-height:1.35;color:var(--txt)}
+#tutor .text+.text{margin-top:.4rem}
+#tutor .ask{font-size:2.6rem;font-weight:800;color:var(--amber);line-height:1.2;margin:.3rem 0}
+#tutor .prog{font-size:1.6rem;color:var(--txt2);margin-top:.2rem}
+#tutor .msg{font-size:2rem;font-weight:800;margin-top:.5rem;min-height:2.7rem;line-height:1.3}
+#tutor .msg.ok{color:var(--green)}#tutor .msg.bad{color:var(--amber)}
+#tutor .keys{font-size:1.6rem;color:var(--txt2);margin-top:.7rem;border-top:.06rem solid var(--line2);padding-top:.6rem}
+#tutor ul.items{list-style:none;font-size:2rem;line-height:1.4;margin:.3rem 0}
+#tutor ul.items li:before{content:"✓ ";color:var(--green);font-weight:800}
+#tutor .next{font-size:2rem;color:var(--amber);font-weight:700;margin-top:.5rem}
+#tutor .strip{display:flex;gap:.5rem;margin:.5rem 0 .6rem}
+#tutor .strip span{flex:1;text-align:center;font-size:1.6rem;font-weight:800;padding:.3rem 0;border-radius:.5rem;border:.12rem solid var(--line2);color:var(--dim)}
+#tutor .strip span.passed{background:#1d4a34;border-color:var(--green);color:#d8f5e6}
+#tutor .strip span.current{border-color:var(--blue);color:var(--txt)}
+#tutor .strip span.open{color:var(--txt2)}
+#tutor ol.list{list-style:none}
+#tutor ol.list li{display:flex;align-items:baseline;gap:1rem;font-size:1.7rem;line-height:1.25;padding:.2rem .8rem;border-radius:.5rem;border:.12rem solid transparent;color:var(--txt)}
+#tutor ol.list li b{width:2.2rem;color:var(--mut)}
+#tutor ol.list li .goal{flex:1;font-size:1.6rem;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#tutor ol.list li .st{font-weight:800;color:var(--mut)}
+#tutor ol.list li.passed .st{color:var(--green)}#tutor ol.list li.progress .st{color:var(--amber)}
+#tutor ol.list li.locked{color:var(--dim)}#tutor ol.list li.locked .goal{color:var(--dim)}
+#tutor ol.list li.sel{background:#1c2a42;border-color:var(--blue)}
 </style>
 </head>
 <body>
@@ -72,7 +101,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
   <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
   <div id="status"></div>
-  <div id="keys">◀ ▶ song · ▲ hand · ⏯ loop · ⏪ hear · ⏩ wall</div>
+  <div id="keys">◀ ▶ song or lessons · ▲ hand · ⏯ loop · ⏪ hear · ⏩ wall</div>
 </div>
 <div id="right" class="side">
   <div><div class="lbl">Accuracy</div><div class="val" id="acc">-</div></div>
@@ -87,7 +116,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 <div id="count"></div>
 <div id="panel"></div>
 <div id="progress"></div>
+<div id="tutor"></div>
 <script src="/piano-core.js"></script>
+<script src="/piano-lessons.js"></script>
 <script src="/piano-sheet.js"></script>
 <script src="/vendor/vexflow-4.2.5-bravura.js"></script>
 <script src="/switch.js"></script>
@@ -154,6 +185,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   var ramp = rememberedOnOff("pianoRamp", false);            // speed ramp: clean loop passes raise the speed
   var rampTarget = rememberedRampTarget();                   // speed the ramp climbs to, percent
   var audio = null, clickedTo = 0;  // Web Audio context for the clicks; song beat up to which clicks are scheduled
+  var PL = window.PianoLessons;
+  var tutor = null;         // tutorial mode while it is open: { screen: "menu" | "lesson", lessons, progress, sel, runner, ... }
+  var tutorStash = null;    // the song the page had open, put back when the tutorial closes
+  var tutorHear = null;     // a tutorial step being played to the player: { plan, t0, ms }
 
   // ---------- sizing ----------
 
@@ -225,6 +260,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function setMicMode(on) {
     if (on === micMode) return;
     micMode = on;
+    if (tutor) { if (tutor.runner) tutor.runner.setTolerant(on); return; }
     // Tempo mode starts over: which notes are judged changes with mic mode.
     if (session && session.tempo) newSession();
     else if (session) { session.setTolerant(on); modeText(); lastSide = ""; panel(); report(); }
@@ -365,7 +401,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var beats = P.metronomeBeats(from, ahead, song.beatsPerBar || 4);
     for (var i = 0; i < beats.length; i++) {
       var b = beats[i];
-      if (!(metronome || (countInOn && b.beat < session.range.start))) continue;
+      if (!(clicksOn() || (countInWanted() && b.beat < session.range.start))) continue;
       if (!audioWake()) break;
       click(audio.currentTime + Math.max(0, (b.beat - clock) * session.beatMs / 1000), b.accent);
     }
@@ -579,6 +615,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // Remote Left / Right (and the link page) pick the previous / next song.
   function stepSong(dir) {
     if (mode !== "play" || !songs.length) return;
+    // Stepping past either end of the song list opens the tutorial, between the last song and the first.
+    var ok = songs.filter(function (s) { return !s.error; }), at = -1;
+    ok.forEach(function (s, i) { if (s.id === songId) at = i; });
+    if (ok.length && at >= 0 && (dir > 0 ? at === ok.length - 1 : at === 0)) return openTutor(dir > 0 ? { left: songId, right: ok[0].id } : { left: ok[ok.length - 1].id, right: songId });
     loadSong(P.stepSong(songs, songId, dir));
   }
 
@@ -614,6 +654,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
   function noteOn(n) {
     // What Hear it first plays (and any echo of it) is not the player's input.
+    if (mode === "play" && tutor) return tutorNote(n);
     if (mode === "play" && (listen || listenReq || Date.now() < echoUntil)) {
       // A key played while the whole song sounds stops it (the link page already drops the keyboard's echo of it).
       if ((listen && listen.whole) || (listenReq && listenReq.whole)) stopListen(true);
@@ -780,6 +821,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   }
 
   function control(c) {
+    if (c.cmd === "learn") return tutor ? (c.id === "on" ? null : closeTutor()) : (c.id === "off" ? null : openTutor());
+    if (tutor) return tutorControl(c);
     if (c.cmd === "calibrate") startCalibration();
     else if (c.cmd === "nudge") nudge(c.px || 0);
     else if (c.cmd === "ok") ok();
@@ -821,6 +864,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   document.addEventListener("keydown", function (e) {
     var k = e.key, step = e.repeat || e.shiftKey ? 10 : 1;
     audioWake();
+    if (tutor && tutorKey(e)) return;
     if (TVSwitch.isListenKey(e)) {
       e.preventDefault();
       if (!e.repeat) { var wasListening = !!(listen || listenReq); toggleListen(); hearDownAt = wasListening ? 0 : Date.now(); }
@@ -849,6 +893,404 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     else if ((k === "-" || k === "_") && mode === "play") setSpeed(speed - P.SPEED_STEP);
     else if ((k === "=" || k === "+") && mode === "play") setSpeed(speed + P.SPEED_STEP);
   });
+
+  // ---------- tutorial mode ----------
+  // Lessons are data (lessons/*.json, listed by /api/piano/lessons); piano-lessons.js runs the steps and
+  // judges them with the same wait-mode and tempo-mode sessions as the songs. This page only shows them:
+  // the keyboard, the falling notes and the sheet music are the ones the songs use. While it is open
+  // `tutor` is set, the song the page had is put away, and keys and notes go to the functions below.
+
+  var TUTOR_SHEET_H = 0.4;  // the sheet music's share of the screen height in a lesson step
+  var HEAR_STEP_MS = 650;   // gap between the notes of a hear-it-first on an explain step
+
+  function curView() { return tutor && tutor.runner && tutor.view ? tutor.view : view; }
+  function fingersShown() { return tutor && tutor.runner ? !(tutor.runner.rt && tutor.runner.rt.blind) : fingers; }
+  function tutorBlind() { return !!(tutor && tutor.runner && tutor.runner.rt && tutor.runner.rt.blind); }
+  function clicksOn() { return tutor && tutor.runner ? !!(tutor.runner.rt && tutor.runner.rt.metronome) : metronome; }
+  function countInWanted() { return tutor ? true : countInOn; }
+
+  // Bottom edge of the lesson panel in device pixels: falling notes start under it.
+  function tutorBottom() {
+    if (!tutor || tutor.screen !== "lesson") return 0;
+    return Math.round(($("tutor").getBoundingClientRect().bottom + window.innerHeight / 90) * DPR);
+  }
+
+  // leave: the songs to go back to with ◀ and ▶ (the neighbours of the tutorial in the song list).
+  function openTutor(leave) {
+    if (tutor || mode !== "play") return;
+    cancelListen();
+    tutorStash = { rawSong: rawSong, origin: songId, leave: leave || { left: songId, right: songId } };
+    rawSong = null; song = null; session = null; held = {}; flash = {}; marks = {}; paused = false; loop = null;
+    tutor = { screen: "menu", lessons: [], progress: PL.emptyProgress(), sel: 0, loading: true, error: "", errors: 0, runner: null, lesson: null, index: 0, view: "", still: false, msg: "", msgKind: "", busy: false };
+    document.body.className = "tutor";
+    $("hint").className = ""; hintUntil = 0; $("count").className = ""; shownCount = -1;
+    tutorRender(); report();
+    getJson("/api/piano/lessons", function (err, d) {
+      if (!tutor) return;
+      tutor.loading = false;
+      if (err) { tutor.error = "The lessons could not be loaded (" + err + ")."; return tutorRender(); }
+      tutor.lessons = d.lessons.filter(function (l) { return !l.error; });
+      tutor.errors = d.lessons.length - tutor.lessons.length;
+      tutor.progress = PL.validProgress(d.progress);
+      var n = PL.nextLesson(tutor.lessons, tutor.progress);
+      tutor.sel = n < 0 ? 0 : n;
+      tutorRender();
+    });
+  }
+
+  // dir: -1 and 1 go to the song on that side of the tutorial, 0 back to the song it was opened from.
+  function closeTutor(dir) {
+    if (!tutor) return;
+    stopHear(true);
+    var st = tutorStash, id = st ? (dir < 0 ? st.leave.left : dir > 0 ? st.leave.right : st.origin) : songId;
+    tutor = null; tutorStash = null; tutorHear = null; held = {}; flash = {}; marks = {}; paused = false;
+    document.body.className = ""; $("tutor").innerHTML = ""; $("count").className = ""; shownCount = -1;
+    session = null; song = null;
+    rawSong = st ? st.rawSong : null;
+    if (id && id !== songId) loadSong(id); else if (rawSong) fitSong(); else loadSong(songId);
+    lastPlace = ""; panel(); report();
+  }
+
+  function tutorMenu() {
+    stopHear(true);
+    tutor.screen = "menu"; tutor.runner = null; tutor.lesson = null; tutor.view = ""; tutor.still = false; tutor.msg = "";
+    session = null; song = null; paused = false; held = {}; flash = {}; marks = {}; shownCount = -1; $("count").className = "";
+    tutorRender(); report();
+  }
+
+  function tutorSelect(d) {
+    if (!tutor.lessons.length) return;
+    tutor.sel = Math.max(0, Math.min(tutor.lessons.length - 1, tutor.sel + d));
+    tutorRender();
+  }
+
+  // Opens lesson i, at the step the player stopped on (or the first when fresh is true).
+  function startLesson(i, fresh) {
+    var l = tutor.lessons[i];
+    if (!l || tutor.busy) return;
+    if (!PL.isUnlocked(tutor.lessons, tutor.progress, i)) { toast("Pass lesson " + i + " first"); return; }
+    tutor.busy = true;
+    getJson("/api/piano/lessons/" + encodeURIComponent(l.id), function (err, lesson) {
+      if (!tutor) return;
+      tutor.busy = false;
+      if (err) return toast("The lesson could not be loaded");
+      tutor.lesson = lesson; tutor.index = i; tutor.screen = "lesson";
+      tutor.runner = PL.createRunner(lesson, { low: cal.low, high: cal.high, tolerant: micMode, start: fresh ? 0 : PL.resumeStep(tutor.progress, lesson) });
+      tutorSetup();
+    });
+  }
+
+  // The page for the runner's current step: the song and session it plays, or the staff it shows.
+  function tutorSetup() {
+    var run = tutor.runner, rt = run.rt;
+    stopHear(true);
+    held = {}; flash = {}; marks = {}; paused = false; playStart = 0; clickedTo = 0; shownCount = -1; $("count").className = "";
+    tutor.msg = ""; tutor.msgKind = ""; tutor.view = ""; tutor.still = false; song = null; session = null;
+    if (rt.kind === "sequence") {
+      song = rt.song; song.fitLow = cal.low; song.fitHigh = cal.high; session = rt.session; tutor.view = rt.view; startClock();
+    } else tutorShow(rt.kind === "quiz" ? rt.display() : rt.display);
+    tutorPost({ lesson: tutor.lesson.id, action: "step", step: run.index });
+    tutorRender(); report();
+  }
+
+  // A one-off staff (a note to read, the notes an explanation points at): sheet music only, nothing moves.
+  function tutorShow(d) {
+    song = null; session = null; tutor.view = ""; tutor.still = false;
+    if (!d) return;
+    song = P.fitSong(d.song, cal.low, cal.high); song.fitLow = cal.low; song.fitHigh = cal.high;
+    session = P.createSession(song, { hand: "right" }); session.done = true;
+    paused = true; tutor.view = d.view; tutor.still = true; startClock();
+  }
+
+  function tutorPost(body) {
+    var now = Date.now(), p = tutor.progress;
+    tutor.progress = body.action === "pass" ? PL.recordPass(p, body.lesson, body.score, now) : body.action === "attempt" ? PL.recordAttempt(p, body.lesson, body.score, now) : PL.recordStep(p, body.lesson, body.step, now);
+    postJson("/api/piano/progress", body, function (err, r) {
+      if (err) { if (tutor) toast("Progress not saved: " + err); return; }
+      if (tutor && r && r.progress) { tutor.progress = PL.validProgress(r.progress); if (tutor.screen === "menu") tutorRender(); }
+    });
+  }
+
+  // The step is finished: record a check, then show how it went.
+  function tutorDone() {
+    var run = tutor.runner, o = run.outcome;
+    if (o.isCheck) {
+      var later = tutor.lesson.steps.slice(run.index + 1).some(function (s) { return s.type === "check"; });
+      if (!o.passed) tutorPost({ lesson: tutor.lesson.id, action: "attempt", score: o.score });
+      else if (!later) tutorPost({ lesson: tutor.lesson.id, action: "pass", score: run.lessonScore() });
+    }
+    tutor.msg = ""; tutorRender(); report();
+  }
+
+  function tutorLessonDone() {
+    var i = tutor.index, passed = PL.lessonState(tutor.progress, tutor.lesson.id).status === "passed", n = Math.min(i + 1, tutor.lessons.length - 1);
+    tutorMenu();
+    tutor.sel = passed ? n : i;
+    toast(passed ? "Lesson " + (i + 1) + " passed" + (i + 1 < tutor.lessons.length ? " · lesson " + (i + 2) + " is open" : "") : "Lesson " + (i + 1));
+    tutorRender();
+  }
+
+  // force: skip a step that is not finished (never a check that is not passed).
+  function tutorAdvance(force) {
+    var run = tutor.runner, r = force ? run.skip() : run.next();
+    if (r === "step") tutorSetup();
+    else if (r === "lesson") tutorLessonDone();
+    else if (force && run.step().type === "check") toast("Pass the check to go on");
+  }
+
+  function tutorOk() {
+    var run = tutor.runner, o = run.outcome;
+    if (o) { if (o.isCheck && !o.passed) tutorRetry(); else tutorAdvance(false); }
+    else if (run.step().type === "explain") tutorAdvance(false);
+  }
+
+  function tutorBack() {
+    if (tutor.runner.prev() === "menu") tutorMenu(); else tutorSetup();
+  }
+
+  function tutorRetry() { tutor.runner.retry(); tutorSetup(); }
+
+  // Remote and keyboard. Returns true when the key was used; the ones left out (Fast-Forward, B and O for
+  // the room light) work as on the song screen.
+  function tutorKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    var k = e.key;
+    if (TVSwitch.isSwitchKey(e) || k === "b" || k === "B" || k === "o" || k === "O") return false;
+    e.preventDefault();
+    if (e.repeat) return true;
+    var run = tutor.runner, back = k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack";
+    if (TVSwitch.isListenKey(e)) { if (run) tutorHearToggle(); return true; }
+    if (tutor.screen === "menu") {
+      if (k === "ArrowUp") tutorSelect(-1);
+      else if (k === "ArrowDown") tutorSelect(1);
+      else if (k === "Enter" || k === " ") startLesson(tutor.sel, false);
+      else if (isLoopKey(e)) startLesson(tutor.sel, true);
+      else if (k === "ArrowLeft") closeTutor(-1);
+      else if (k === "ArrowRight") closeTutor(1);
+      else if (back) closeTutor(0);
+      return true;
+    }
+    if (tutor.busy) return true;
+    if (k === "ArrowRight") tutorAdvance(true);
+    else if (k === "Enter" || k === " ") tutorOk();
+    else if (k === "ArrowLeft") tutorBack();
+    else if (k === "ArrowUp" || k === "r" || k === "R") tutorRetry();
+    else if (k === "ArrowDown" || back || k === "e" || k === "E") tutorMenu();
+    else if (isLoopKey(e)) { if (session && run.rt.tempo && !run.outcome) { paused = !paused; tutorRender(); } }
+    return true;
+  }
+
+  // Commands from the link page while the tutorial is open.
+  function tutorControl(c) {
+    if (c.cmd === "calibrate") { closeTutor(0); startCalibration(); }
+    else if (c.cmd === "song") { closeTutor(0); if (c.id) loadSong(c.id); }
+    else if (c.cmd === "listen") { if (tutor.runner) tutorHearToggle(); }
+    else if (c.cmd === "ok") { if (tutor.screen === "menu") startLesson(tutor.sel, false); else if (!tutor.busy) tutorOk(); }
+    else if (c.cmd === "back") { if (tutor.screen === "menu") closeTutor(0); else tutorMenu(); }
+    else if (c.cmd === "restart") { if (tutor.runner) tutorRetry(); }
+    else if (c.cmd === "pause") { if (session && tutor.runner && tutor.runner.rt.tempo && !tutor.runner.outcome) { paused = !paused; tutorRender(); } }
+  }
+
+  // A key struck while a lesson is open.
+  function tutorNote(n) {
+    held[n] = true;
+    var run = tutor.runner;
+    if (!run || tutorHear || tutor.busy || Date.now() < echoUntil || run.outcome) return;
+    var rt = run.rt, now = Date.now();
+    if (rt.kind === "sequence" && rt.tempo) { if (paused) return; tutorTick(now); if (run.outcome) return; }
+    var st = rt.kind === "sequence" && !rt.tempo ? session.current() : null;
+    var r = run.press(n, clock), green = { color: "#3ddc84", until: now + FLASH_MS };
+    if (r.result === "ignored") return;
+    if (rt.kind === "sequence") {
+      if (r.result === "wrong" && st) marks[st.start] = "bad";
+      else if ((r.result === "advance" || r.result === "done") && st) marks[st.start] = marks[st.start] || "ok";
+      else if (r.result === "hit") tempoMarks();
+    }
+    if (r.result === "advance" && rt.kind === "explain") return tutorAdvance(false);
+    if (r.result === "wrong") {
+      // A wrong key never costs anything: it shows red while held and the right key shows amber.
+      flash[n] = { color: "#ff5252", until: Infinity };
+      if (r.target != null) flash[r.target] = { color: "#ffb020", until: now + 2600 };
+      tutor.msg = "Not that one. " + r.hint; tutor.msgKind = "bad";
+    } else if (r.result === "hit") {
+      var on = r.timing === "on time";
+      flash[n] = { color: on ? "#3ddc84" : "#ffb020", until: now + FLASH_MS };
+      tutor.msg = on ? "On the beat!" : r.timing === "early" ? "A little early" : "A little late"; tutor.msgKind = on ? "ok" : "bad";
+    } else if (r.result === "again") {
+      tutor.msg = "You found that one. Try a different key."; tutor.msgKind = "bad";
+    } else {
+      flash[n] = green;
+      tutor.msg = rt.kind !== "quiz" ? "" : r.result === "correct" ? "Yes! " + r.found + " of " + r.of + " found." : "Yes, that's it!";
+      tutor.msgKind = "ok";
+    }
+    if (r.result === "question") tutorShow(rt.display());
+    if (run.outcome) return tutorDone();
+    tutorRender(); report();
+  }
+
+  // Tempo mode: notes not struck in time are missed.
+  function tutorTick(now) {
+    var run = tutor.runner, r = run.tick(clock);
+    for (var i = 0; i < r.misses.length; i++) flash[r.misses[i]] = { color: "#7a2b35", until: now + FLASH_MS / 2 };
+    if (r.misses.length) tempoMarks();
+    if (run.outcome) return tutorDone();
+    if (r.misses.length) { tutor.msg = "Missed one, keep going"; tutor.msgKind = "bad"; tutorRender(); }
+  }
+
+  function tutorFrame(dt, now) {
+    if (tutorHear && now >= tutorHear.t0 + tutorHear.ms) stopHear(false);
+    var run = tutor.runner;
+    if (!run || !session || paused || tutorHear || run.outcome || tutor.busy || run.rt.kind !== "sequence") return;
+    if (run.rt.tempo) {
+      clock = P.advanceClock(clock, dt, song.bpm * session.speed / 100, null);
+      tutorTick(now);
+      if (tutor && tutor.runner === run && !run.outcome) metronomeTick();
+    } else {
+      var st = session.current();
+      clock = P.advanceClock(clock, dt, song.bpm, st ? st.start : null);
+    }
+  }
+
+  // ---------- tutorial: hear it first ----------
+
+  function hearPlan(notes) {
+    return { ms: notes.length * HEAR_STEP_MS + 150, events: notes.map(function (n, i) { return { note: n, hand: "right", finger: 0, at: i * HEAR_STEP_MS, dur: HEAR_STEP_MS - 100 }; }) };
+  }
+
+  // Rewind or P: the keyboard plays what the step is about (the lit keys, the tune, the note to read)
+  // and the TV lights each key as it sounds. Pressing it again stops.
+  function tutorHearToggle() {
+    if (tutorHear) return stopHear(true);
+    var run = tutor.runner, rt = run.rt, plan = null;
+    if (rt.kind === "explain") { var notes = rt.hear.length ? rt.hear : rt.lit; if (notes.length) plan = hearPlan(notes); }
+    else if (rt.kind === "sequence") plan = P.listenPlan(song, { hand: session.hand, from: 1, to: rt.bars, speed: rt.tempo ? session.speed : 100 });
+    else { var q = rt.question(); if (q && q.target.exact != null) plan = hearPlan([q.target.exact]); }
+    if (!plan || !plan.events.length) { toast("Nothing to hear on this step"); return; }
+    var hear = tutorHear = { plan: plan, t0: Date.now() + P.LISTEN_LEAD_MS, ms: plan.ms };
+    held = {};
+    tutor.msg = "♪ Listen…"; tutor.msgKind = "ok"; tutorRender();
+    postJson("/api/piano/listen", { events: plan.events.map(function (e) { return { note: e.note, at: e.at, dur: e.dur }; }) }, function (err, r) {
+      if (!tutor || tutorHear !== hear) return;
+      if (err || !(r && r.output)) { tutor.msg = "♪ Listen… (no keyboard sound, lights only)"; tutorRender(); }
+    });
+  }
+
+  function stopHear(tell) {
+    if (!tutorHear) return;
+    if (tell) postJson("/api/piano/listen", { stop: true }, function () {});
+    tutorHear = null; echoUntil = Date.now() + ECHO_MS;
+    if (tutor) { tutor.msg = ""; tutorRender(); }
+  }
+
+  // ---------- tutorial: screens ----------
+
+  function tutorHint() {
+    if (tutor.screen === "menu") return "▲ ▼ choose · OK start or resume · ⏯ start over · ◀ ▶ back to the songs";
+    var run = tutor.runner, o = run.outcome, rt = run.rt, step = run.step();
+    var hear = rt.kind === "explain" ? (rt.hear.length || rt.lit.length) : rt.kind === "sequence" || (rt.kind === "quiz" && rt.question() && rt.question().target.exact != null);
+    var h = hear ? " · ⏪ hear it" : "";
+    if (o) return (o.isCheck && !o.passed ? "OK try again" : "OK next") + " · ▲ again · ◀ back" + h + " · ▼ lessons";
+    if (rt.kind === "explain") return "▶ next · ◀ back" + h + " · ▼ lessons";
+    return "◀ back · ▲ start again" + (rt.tempo ? " · ⏯ pause" : "") + h + (step.type === "check" ? "" : " · ▶ skip") + " · ▼ lessons";
+  }
+
+  function tutorConn() {
+    if (!presence) return "";
+    if (presence.input === "mic") return presence.device ? "Microphone is listening." : "Microphone is not listening: press Start listening on the link page.";
+    if (presence.device) return "Keyboard: " + presence.device;
+    return "No keyboard found: open the link page on the computer it is plugged into.";
+  }
+
+  function tutorRender() {
+    var el = $("tutor");
+    if (!tutor) { el.innerHTML = ""; return; }
+    el.innerHTML = tutor.screen === "menu" ? tutorMenuHtml() : tutorLessonHtml();
+  }
+
+  function tutorMenuHtml() {
+    var ls = tutor.lessons, pr = tutor.progress;
+    var h = '<div class="tag">Learn piano</div><h1>Start from the very first step</h1>';
+    if (tutor.loading) return h + '<div class="text">Loading the lessons…</div>';
+    if (tutor.error) return h + '<div class="msg bad">' + esc(tutor.error) + '</div><div class="keys">◀ ▶ back to the songs</div>';
+    var next = PL.nextLesson(ls, pr);
+    h += '<div class="prog">' + esc(PL.progressText(ls, pr)) + "</div>";
+    h += '<div class="strip">' + PL.strip(ls, pr).map(function (c, i) { return '<span class="' + c.status + '">' + (i + 1) + "</span>"; }).join("") + "</div>";
+    h += '<ol class="list">' + ls.map(function (l, i) {
+      var st = PL.lessonState(pr, l.id), open = PL.isUnlocked(ls, pr, i);
+      var label = st.status === "passed" ? "✓ " + P.percentText(Math.round((st.best || 0) * 1000) / 10) : st.status === "in-progress" ? "step " + (st.step + 1) + " of " + l.steps : !open ? "locked" : i === next ? "start here" : "";
+      return '<li class="' + (i === tutor.sel ? "sel " : "") + (st.status === "passed" ? "passed" : st.status === "in-progress" ? "progress" : "") + (open ? "" : " locked") + '"><b>' + (i + 1) + "</b>" + esc(l.title) +
+        '<span class="goal">' + esc(l.goal) + '</span><span class="st">' + label + "</span></li>";
+    }).join("") + "</ol>";
+    var conn = tutorConn();
+    if (conn || tutor.errors) h += '<div class="prog">' + esc(conn) + (tutor.errors ? " " + tutor.errors + " lesson file(s) have errors: see the server log or run node validate-lessons.js." : "") + "</div>";
+    return h + '<div class="keys">' + esc(tutorHint()) + "</div>";
+  }
+
+  function tutorLessonHtml() {
+    var run = tutor.runner, step = run.step(), rt = run.rt, o = run.outcome;
+    var h = '<div class="tag">' + esc("Lesson " + (tutor.index + 1) + " · step " + (run.index + 1) + " of " + run.total) + "</div>";
+    if (o) {
+      var title = o.isCheck ? (o.passed ? "Passed!" : "Not quite yet") : o.accuracy >= 0.95 ? "Well played!" : "Nice work!";
+      h += "<h1>" + esc(title) + "</h1>" + o.lines.map(function (l) { return '<div class="text">' + esc(l) + "</div>"; }).join("");
+      return h + '<div class="keys">' + esc(tutorHint()) + "</div>";
+    }
+    h += "<h1>" + esc(step.title || tutor.lesson.title) + "</h1>";
+    if (step.text) h += '<div class="text">' + esc(step.text) + "</div>";
+    if (step.items) h += '<ul class="items">' + step.items.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>";
+    if (step.next) h += '<div class="next">' + esc(step.next) + "</div>";
+    if (rt.kind === "quiz") {
+      var q = rt.question();
+      h += '<div class="ask">' + esc(q.prompt) + "</div>";
+      h += '<div class="prog">' + (q.count > 1 ? "Found " + rt.foundCount + " of " + q.count : "") + (q.count > 1 && rt.questions.length > 1 ? " · " : "") + (rt.questions.length > 1 ? "Question " + (rt.qi + 1) + " of " + rt.questions.length : "") + "</div>";
+    } else if (rt.kind === "sequence") {
+      var n = rt.tempo ? Object.keys(session.judged).length : Math.min(session.index + 1, session.steps.length), total = rt.tempo ? session.noteCount : session.steps.length;
+      h += '<div class="prog">' + (rt.tempo ? (paused ? "Paused · " : "Tempo " + session.speed + "% · ") + n + " of " + total + " notes" : "Note " + n + " of " + total) + (rt.metronome ? " · metronome on" : "") + "</div>";
+    }
+    h += '<div class="msg ' + (tutor.msgKind || "") + '">' + esc(tutor.msg || "") + "</div>";
+    return h + '<div class="keys">' + esc(tutorHint()) + "</div>";
+  }
+
+  // ---------- tutorial: on the keyboard ----------
+
+  // Lit keys for explanations, finger numbers, letters, the black-key groups, and the keys sounding in a hear-it-first.
+  function drawTutorKeys(keyTop, blackH, now) {
+    var rt = tutor.runner.rt, lit = {}, n, k, explain = rt.kind === "explain";
+    if (explain) rt.lit.forEach(function (x) { lit[x] = { color: null, finger: rt.fingers[x] || 0 }; });
+    if (tutorHear) { var sd = P.sounding(tutorHear.plan, now - tutorHear.t0); for (n in sd) lit[n] = { color: "#3ddc84", finger: 0 }; }
+    if (explain && rt.groups) drawGroups(keyTop);
+    for (var pass = 0; pass < 2; pass++) {
+      for (n = layout.low; n <= layout.high; n++) {
+        k = layout.keys[n];
+        if (k.black !== (pass === 1)) continue;
+        var x0 = Math.round(k.x0), x1 = Math.round(k.x1), li = lit[n], cx = (x0 + x1) / 2;
+        if (li && !held[n]) {
+          ctx.fillStyle = li.color || (k.black ? "#4da3ff" : "#8cc6ff");
+          if (k.black) ctx.fillRect(x0, keyTop, x1 - x0, blackH); else ctx.fillRect(x0 + 1, keyTop, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop);
+        }
+        if (explain && (rt.letters === "all" ? !k.black : rt.letters === "lit" ? !!li : false)) {
+          fingerText(P.noteName(n).replace(/-?\d+$/, ""), cx, k.black ? keyTop + blackH * 0.4 : keyTop + (H - keyTop) * 0.42, Math.min((x1 - x0) * 0.62, 26 * DPR), k.black || (li && !held[n]) ? (k.black ? "#e8edf5" : "#07101d") : "#5d687c");
+        }
+        if (li && li.finger && !held[n] && fingersShown()) fingerText(li.finger, cx, k.black ? keyTop + blackH * 0.72 : keyTop + (H - keyTop) * 0.8, Math.min((x1 - x0) * 0.75, 28 * DPR), "#07101d");
+      }
+    }
+  }
+
+  // A bracket over each group of two (amber) and three (blue) black keys, with its number.
+  function drawGroups(keyTop) {
+    var groups = [], g = null, n;
+    for (n = layout.low; n <= layout.high; n++) {
+      if (!P.isBlack(n)) continue;
+      var pc = n % 12;
+      if (pc === 1 || pc === 6) groups.push(g = { first: n, last: n, size: pc === 1 ? 2 : 3 });
+      else if (g) g.last = n;
+    }
+    groups.forEach(function (gr) {
+      var a = layout.keys[gr.first], b = layout.keys[gr.last], y = keyTop - Math.round(18 * DPR), t = Math.round(10 * DPR);
+      ctx.strokeStyle = gr.size === 2 ? "#ffb020" : "#4dd0e1"; ctx.lineWidth = Math.max(2, Math.round(3 * DPR)); ctx.lineJoin = "round";
+      ctx.beginPath(); ctx.moveTo(a.x0, y + t); ctx.lineTo(a.x0, y); ctx.lineTo(b.x1, y); ctx.lineTo(b.x1, y + t); ctx.stroke();
+      fingerText(gr.size, (a.x0 + b.x1) / 2, y - Math.round(22 * DPR), Math.round(36 * DPR), gr.size === 2 ? "#ffb020" : "#4dd0e1");
+    });
+  }
 
   // ---------- relay ----------
 
@@ -879,6 +1321,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     es.addEventListener("songs", function (m) {
       var d = JSON.parse(m.data);
       songs = d.songs;
+      if (tutor) return;
       if (!rawSong || (mode === "play" && d.changed.indexOf(songId) >= 0)) loadSong(songId);
     });
   }
@@ -918,6 +1361,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     if (l) s.push(l);
     s.push(saved ? "Calibrated " + new Date(saved.savedAt).toLocaleDateString() : "Not calibrated: ▼ to calibrate");
     $("status").innerHTML = s.join("<br>");
+    if (tutor && tutor.screen === "menu") tutorRender();
   }
 
   var reportTimer = null;
@@ -938,7 +1382,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      listening: listen ? listen.label : "", listeningAll: !!(listen && listen.whole), fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!(listen && listen.whole), fingers: fingers, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -955,6 +1399,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // ---------- panel text ----------
 
   function panel() {
+    if (tutor) { $("panel").className = ""; return status(); }
     var p = $("panel"), h = "";
     if (mode === "cal1") h = "<div class=step>Calibrate · step 1 of 3</div><h1>Press your lowest key</h1>" +
       "<p>Then use <b>◀ ▶</b> until the <b>left blue line</b> sits on the left edge of that key, as seen from the stool. <b>OK</b> when it lines up.</p>" +
@@ -999,7 +1444,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   function frame(t) {
     var now = Date.now(), dt = Math.min(100, t - (frame.last || t));
     frame.last = t;
-    if (listen) {
+    if (tutor) {
+      tutorFrame(dt, now);
+    } else if (listen) {
       // Hear it first runs the clock through the bars at tempo, whatever wait mode is waiting for.
       var el = now - listen.t0;
       if (el >= listen.plan.ms) stopListen(false);
@@ -1071,7 +1518,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var c = mode === "play" ? cal : work;
     var keyTop = Math.round(H * (1 - KEY_H)), hitY = keyTop - Math.round(H * 0.006);
     // With the sheet music up, the falling notes run from just under it (or not at all on their own).
-    var box = sheetBox(), areaTop = box ? box.y + box.h + Math.round(H * 0.012) : 0, falling = !box || view === "both";
+    var box = sheetBox(), areaTop = box ? box.y + box.h + Math.round(H * 0.012) : 0, falling = !box || curView() === "both";
+    areaTop = Math.max(areaTop, tutorBottom());
     var ppb = (hitY - areaTop) / LOOKAHEAD;
     ctx.fillStyle = "#0b0f17"; ctx.fillRect(0, 0, W, H);
 
@@ -1091,6 +1539,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     // note is wanted, so only that key lights.
     if (current && session.tempo && current.start - clock > LIGHT_BEATS) current = null;
     if (current) session.needed().forEach(function (x) { want[x] = session.hit && session.hit[x] ? "hit" : "want"; });
+    // A tutorial step without highlights: the keys are not lit, the player finds them.
+    if (tutorBlind()) want = {};
     var lo = loop ? session.range.start : -Infinity, hi = loop ? session.range.end : Infinity;
     // While Hear it first plays, the keys sounding now are lit instead of the ones wait mode wants.
     var lp = listen && listen.plan, snd = lp ? P.sounding(lp, now - listen.t0) : {};
@@ -1130,7 +1580,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         if (nt.shifted) { ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
         // Finger number at the bottom of the note's visible part, where it meets the key.
         var fs = Math.min((key.x1 - key.x0) * 0.8, 30 * DPR), seen = Math.min(bottom, hitY);
-        if (fingers && nt.finger && seen - top - 2 * gap > fs * 1.2) {
+        if (fingersShown() && nt.finger && seen - top - 2 * gap > fs * 1.2) {
           fingerText(nt.finger, (key.x0 + key.x1) / 2, seen - gap - fs * 0.65, fs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
         }
         ctx.globalAlpha = 1;
@@ -1171,11 +1621,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
           ctx.fillRect(x0 + 1, keyTop, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop);
         }
         // The lit key carries the finger that plays it.
-        var lf = !fingers || held[m] ? 0 : want[m] === "want" ? current.fingers && current.fingers[m] : want[m] === "sound" ? snd[m].finger : 0;
+        var lf = !fingersShown() || held[m] ? 0 : want[m] === "want" ? current.fingers && current.fingers[m] : want[m] === "sound" ? snd[m].finger : 0;
         if (lf) fingerText(lf, (x0 + x1) / 2, kk.black ? keyTop + blackH * 0.72 : keyTop + (H - keyTop) * 0.8, Math.min((x1 - x0) * 0.75, 28 * DPR), "#07101d");
       }
     }
 
+    if (tutor && tutor.runner) drawTutorKeys(keyTop, blackH, now);
     if (box) drawSheet(box, now, current, lo, hi, lp, snd);
 
     // Calibration edge lines and the range labels.
@@ -1189,14 +1640,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   // Where the grand staff goes: across the top of the strip, or nowhere (falling notes only,
   // calibrating, or no song yet).
   function sheetBox() {
-    if (view === "notes" || mode !== "play" || !song || !session || !cal) return null;
-    return { x: Math.round(cal.left), y: Math.round(H * 0.012), w: Math.round(cal.right - cal.left), h: Math.round(H * SHEET_H[view]) };
+    var v = curView();
+    if (v === "notes" || mode !== "play" || !song || !session || !cal) return null;
+    return { x: Math.round(cal.left), y: Math.round(H * 0.012), w: Math.round(cal.right - cal.left), h: Math.round(H * (tutor && v === "sheet" ? TUTOR_SHEET_H : SHEET_H[v])) };
   }
 
   // The song as notation, rebuilt when the song, the size or the finger setting changes. Pages
   // of 2 to 4 bars are drawn with VexFlow once into their own canvas and only copied each frame.
   function sheetFor(box) {
-    var id = [songId, song.fitLow, song.fitHigh, box.w, box.h, fingers].join("|");
+    var id = [songId, song.fitLow, song.fitHigh, box.w, box.h, fingersShown()].join("|");
     if (sheet && sheet.id === id && sheet.song === song) return sheet;
     var scale = box.h / STAFF_U;
     sheet = { id: id, song: song, box: box, scale: scale, model: S.buildSheet(song), pages: {}, error: VF ? "" : "VexFlow did not load" };
@@ -1303,7 +1755,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     // Finger numbers above the right hand's notes and below the left hand's, clear of the stems,
     // a chord's stacked with its top note's on top.
     var fs = ev.fingers.filter(function (f) { return f; });
-    if (fingers && fs.length) {
+    if (fingersShown() && fs.length) {
       var a = new VF.Annotation(fs.reverse().join("\n"));
       a.setFont("Arial", 13, "bold");
       a.setVerticalJustification(clef === "treble" ? VF.Annotation.VerticalJustify.TOP : VF.Annotation.VerticalJustify.BOTTOM);
@@ -1368,7 +1820,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 
     // Playhead: an amber line through both staves at the song clock.
     var px = S.beatX(page.anchors, Math.max(clock, sh.model.bars[start - 1].start));
-    if (px === px) {
+    if (px === px && !(tutor && tutor.still)) {
       ctx.fillStyle = "rgba(255,176,32,.85)";
       ctx.fillRect(Math.round(box.x + px - DPR), box.y + Math.round(16 * s), Math.max(2, Math.round(2.5 * DPR)), box.h - Math.round(26 * s));
     }
@@ -1408,7 +1860,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
     var box = sheetBox(), top = box ? (box.y + box.h) / DPR + window.innerHeight / 60 + "px" : "";
     if (top === lastPlace) return;
     lastPlace = top;
-    ["hint", "toast", "listen", "panel"].forEach(function (id) { $(id).style.top = top; });
+    ["hint", "toast", "listen", "panel", "tutor"].forEach(function (id) { $(id).style.top = top; });
   }
 
   var lastSide = "";
@@ -1449,7 +1901,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
         (session.passWrong || session.passMissed ? (!session.done ? " · this pass has a mistake" : "") : "") + " · pass " + (session.passes + (session.done ? 0 : 1)) +
         (session.tempo && ramp ? " · ramp " + session.speed + "% → " + rampTarget + "%" : "");
     }
-    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song · ⏯ loop bar · ⏪ hear the bar") + " · hold ⏪ (W) whole song · ▲ hand · ⏩ wall";
+    $("keys").textContent = (loop ? "◀ ▶ move loop · ⏯ loop off · ⏪ hear the loop" : "◀ ▶ song or lessons · ⏯ loop bar · ⏪ hear the bar") + " · hold ⏪ (W) whole song · ▲ hand · ⏩ wall";
   }
 
   // ---------- helpers ----------
@@ -1496,6 +1948,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
   getJson("/api/config", function (err, c) { if (!err && c) wallUrl = TVSwitch.resolveUrl(c.wallUrl, location.hostname); });
   loadSong();
   connect();
+  if (/[?&]learn\b/.test(location.search)) openTutor();
   requestAnimationFrame(frame);
 })();
 </script>

@@ -1,0 +1,15 @@
+{
+  "id": "left-hand",
+  "title": "Left hand",
+  "goal": "Find the bass position and play with your left hand.",
+  "steps": [
+    { "type": "explain", "title": "The lower keys", "text": "Your left hand usually plays the lower keys, called the bass. Put your little finger (5) on the C below middle C.", "highlight": ["C3"], "fingers": { "C3": 5 }, "hear": ["C3"] },
+    { "type": "explain", "title": "Left-hand fingers", "text": "Here the little finger is 5 and the thumb is 1, so the numbers count down as you go up: C3 with 5, D with 4, E with 3, F with 2, G with 1.", "highlight": ["C3", "D3", "E3", "F3", "G3"], "fingers": { "C3": 5, "D3": 4, "E3": 3, "F3": 2, "G3": 1 }, "letters": "lit" },
+    { "type": "find", "title": "Find it", "prompt": "Play the C below middle C", "target": "C3" },
+    { "type": "play", "title": "Up with the left hand", "text": "Play C D E F G with fingers 5 4 3 2 1.", "notes": [["C3", 0, 1, 5], ["D3", 1, 1, 4], ["E3", 2, 1, 3], ["F3", 3, 1, 2], ["G3", 4, 1, 1]], "hand": "left", "bpm": 60 },
+    { "type": "play", "title": "Back down", "text": "Now G down to C, fingers 1 2 3 4 5.", "notes": [["G3", 0, 1, 1], ["F3", 1, 1, 2], ["E3", 2, 1, 3], ["D3", 3, 1, 4], ["C3", 4, 1, 5]], "hand": "left", "bpm": 60 },
+    { "type": "explain", "title": "A bass line", "text": "Low notes are often long and slow, like a steady floor under a tune. Next you play C and G, four beats each.", "highlight": ["C3", "G3"], "fingers": { "C3": 5, "G3": 1 }, "hear": ["C3", "G3"] },
+    { "type": "play", "title": "C and G", "text": "Play C, then G, then C, then G, and hold each for four beats.", "notes": [["C3", 0, 4, 5], ["G3", 4, 4, 1], ["C3", 8, 4, 5], ["G3", 12, 4, 1]], "hand": "left", "bpm": 60 },
+    { "type": "check", "title": "Check: left hand", "notes": [["C3", 0, 1, 5], ["D3", 1, 1, 4], ["E3", 2, 1, 3], ["F3", 3, 1, 2], ["G3", 4, 1, 1], ["F3", 5, 1, 2], ["E3", 6, 1, 3], ["D3", 7, 1, 4], ["C3", 8, 1, 5]], "hand": "left", "bpm": 70, "blind": true, "pass": 0.8 }
+  ]
+}

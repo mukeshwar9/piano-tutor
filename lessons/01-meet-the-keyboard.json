@@ -1,0 +1,16 @@
+{
+  "id": "meet-the-keyboard",
+  "title": "Meet the keyboard",
+  "goal": "Tell the white and black keys apart and find every C.",
+  "steps": [
+    { "type": "explain", "title": "Your keyboard", "text": "A piano has long white keys and short black keys. Press a few keys and listen. Then press right to carry on.", "free": true },
+    { "type": "explain", "title": "Groups of black keys", "text": "The black keys come in little groups: two, then three, then two, then three. Look at the numbers above the keys.", "groups": true },
+    { "type": "explain", "title": "Finding C", "text": "Find a group of two black keys. The white key just to the left of that group is called C. Every C is lit now.", "highlight": ["C*"], "hear": ["C3", "C4", "C5"] },
+    { "type": "find", "title": "Your turn", "prompt": "Play any C", "target": "C" },
+    { "type": "find", "title": "Another one", "prompt": "Play two different Cs", "target": "C", "count": 2 },
+    { "type": "explain", "title": "Middle C", "text": "The C closest to the middle of your keyboard is called middle C. It is lit now. You will use it all the time.", "highlight": ["C4"], "hear": ["C4"] },
+    { "type": "find", "title": "Find middle C", "prompt": "Play middle C", "target": "C4" },
+    { "type": "explain", "title": "High and low", "text": "Keys to the right sound higher. Keys to the left sound lower. Try some from both ends, then press right.", "free": true, "hear": ["C2", "C4", "C6"] },
+    { "type": "check", "title": "Check: find five Cs", "pass": 0.8, "questions": [ { "prompt": "Find five different Cs", "target": "C", "count": 5 } ] }
+  ]
+}

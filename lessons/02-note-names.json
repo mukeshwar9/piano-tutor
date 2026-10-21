@@ -1,0 +1,22 @@
+{
+  "id": "note-names",
+  "title": "Note names",
+  "goal": "Learn the seven letters C D E F G A B and find notes by name.",
+  "steps": [
+    { "type": "explain", "title": "Seven letters", "text": "Piano notes use seven letters: C D E F G A B. After B the letters start again at C. The names are on the white keys.", "letters": "all" },
+    { "type": "explain", "title": "Walk up from C", "text": "Start at middle C and go up the white keys: C D E F G A B, and the next C is higher. Press the hear button to listen.", "highlight": ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"], "letters": "lit" },
+    { "type": "play", "title": "Walk up", "text": "Press each lit key in turn and say its name.", "notes": [["C4", 0, 1], ["D4", 1, 1], ["E4", 2, 1], ["F4", 3, 1], ["G4", 4, 1], ["A4", 5, 1], ["B4", 6, 1]], "hand": "right", "bpm": 60 },
+    { "type": "play", "title": "Walk back down", "text": "Now come back down from B to C.", "notes": [["B4", 0, 1], ["A4", 1, 1], ["G4", 2, 1], ["F4", 3, 1], ["E4", 4, 1], ["D4", 5, 1], ["C4", 6, 1]], "hand": "right", "bpm": 60 },
+    { "type": "find", "title": "Find by name", "questions": [
+      { "prompt": "Play any D", "target": "D" },
+      { "prompt": "Play any G", "target": "G" },
+      { "prompt": "Play any A", "target": "A" } ] },
+    { "type": "explain", "title": "No letters now", "text": "From here the letters are hidden. If you get lost, find a group of two black keys: the key to its left is C.", "groups": true },
+    { "type": "check", "title": "Check: ten named notes", "pass": 0.8, "questions": [
+      { "prompt": "Play any E", "target": "E" }, { "prompt": "Play any B", "target": "B" },
+      { "prompt": "Play any F", "target": "F" }, { "prompt": "Play any C", "target": "C" },
+      { "prompt": "Play any A", "target": "A" }, { "prompt": "Play any D", "target": "D" },
+      { "prompt": "Play any G", "target": "G" }, { "prompt": "Play any E", "target": "E" },
+      { "prompt": "Play any B", "target": "B" }, { "prompt": "Play any F", "target": "F" } ] }
+  ]
+}
