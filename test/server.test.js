@@ -213,6 +213,32 @@ async function waitForServer() {
     assert(!wallB.events.some((e) => e.event === "build"), "the wall page is not sent one");
     tvB.stop(); linkB.stop(); wallB.stop();
 
+    // Telemetry: the TV posts its speed numbers, they are readable at GET, kept in memory and shown to link pages.
+    let tg = (await request("GET", "/api/piano/telemetry")).data;
+    assert.strictEqual(tg.live, false);
+    assert.strictEqual(tg.latest, null);
+    assert.strictEqual(tg.ageMs, null);
+    const linkT = listen("link");
+    await wait(200);
+    assert.strictEqual((await request("POST", "/api/piano/telemetry", { worst: 10 })).status, 400, "a sample needs an fps");
+    const sample = { fps: 48.2, fps5: 51.7, worst: 96.4, long: 3, level: 1, preset: "lite", latency: { last: 30, avg: 28.4, max: 61, n: 5 }, mem: 40, chrome: "114", dpr: 1.5, w: 1280, h: 720, ua: "must not be kept" };
+    assert.strictEqual((await request("POST", "/api/piano/telemetry", sample)).status, 200);
+    tg = (await request("GET", "/api/piano/telemetry")).data;
+    assert.strictEqual(tg.live, true);
+    assert(tg.ageMs >= 0 && tg.ageMs < 3000);
+    assert.strictEqual(tg.latest.fps, 48.2);
+    assert.strictEqual(tg.latest.latency.avg, 28.4);
+    assert.strictEqual(tg.latest.ua, undefined, "only known fields are kept");
+    assert.strictEqual(tg.summary.samples, 1);
+    assert.strictEqual(tg.summary.worstMs, 96.4);
+    await wait(200);
+    const pushed = linkT.events.filter((e) => e.event === "telemetry");
+    assert.strictEqual(pushed.length, 1, "link pages are sent each sample");
+    assert.strictEqual(pushed[0].data.latest.fps, 48.2);
+    linkT.stop();
+    assert.strictEqual((await request("POST", "/api/piano/control", { cmd: "telemetry", id: "on" })).status, 200, "the link page can switch the TV's telemetry");
+    assert(!fs.readdirSync(cfgDir).concat(fs.readdirSync(dir)).some((f) => /telemetry/i.test(f)), "nothing is written to disk");
+
     console.log("server tests passed");
   } finally {
     child.kill();

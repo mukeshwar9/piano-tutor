@@ -13,6 +13,7 @@ const tvSwitch = require("./public/switch.js");
 const bulbLight = require("./bulb.js");
 const lightColor = require("./light.js");
 const lessonStore = require("./lessons.js");
+const telemetry = require("./telemetry.js");
 
 const ROOT = __dirname;
 
@@ -62,6 +63,7 @@ const bulb = bulbLight.createBulb({
 // (the wall display on another server, connected across origins) only listen for switch requests.
 const pianoClients = new Set();
 const presence = { device: "", output: "", input: "", deviceAt: 0, lastInputAt: 0, tvState: null };
+const telemetryStore = telemetry.createStore();  // the TV's speed numbers, in memory only
 
 function sse(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -80,7 +82,7 @@ function presenceInfo() {
 const startedAt = Date.now();
 function buildId() {
   const parts = [startedAt];
-  for (const f of ["piano.html", "piano-link.html", "piano-core.js", "piano-fx.js", "piano-sheet.js", "switch.js", "pitch.js"]) {
+  for (const f of ["piano.html", "piano-link.html", "piano-core.js", "piano-fx.js", "piano-telemetry.js", "piano-sheet.js", "switch.js", "pitch.js"]) {
     try { const st = fs.statSync(path.join(ROOT, "public", f)); parts.push(Math.round(st.mtimeMs), st.size); } catch {}
   }
   return parts.join("-");
@@ -126,7 +128,7 @@ async function readJson(req, limit = 64 * 1024) {
   try { return JSON.parse(buf.toString("utf8") || "{}"); } catch { throw new Error("invalid JSON"); }
 }
 
-const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn", "fx", "fxIntensity"];
+const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn", "fx", "fxIntensity", "telemetry"];
 
 async function pianoPost(url, req, res) {
   let body;
@@ -203,6 +205,13 @@ async function pianoPost(url, req, res) {
     // The TV's play state, mirrored to link pages so the person at the computer can see it.
     presence.tvState = { ...body, at: Date.now() };
     broadcast("tv-state", presence.tvState, "link");
+    return json(res, 200, { ok: true });
+  }
+  if (url === "/api/piano/telemetry") {
+    // The TV's speed numbers (every couple of seconds while its telemetry is on), kept in memory only.
+    const sample = telemetryStore.add(body);
+    if (!sample) return json(res, 400, { error: "fps is required" });
+    broadcast("telemetry", telemetryStore.get(), "link");
     return json(res, 200, { ok: true });
   }
   if (url === "/api/piano/import") {
@@ -333,6 +342,7 @@ function pianoGet(url, qs, res) {
   if (url === "/api/piano/progress") return json(res, 200, { progress: lessonStore.readProgress(config.pianoProgress) });
   if (url === "/api/piano/calibration") return json(res, 200, { calibration: piano.readCalibration(config.pianoCalibration) });
   if (url === "/api/piano/light") return json(res, 200, bulb.info());
+  if (url === "/api/piano/telemetry") return json(res, 200, telemetryStore.get());
   if (url === "/api/piano/presence") return json(res, 200, presenceInfo());
   json(res, 404, { error: "not found" });
 }
@@ -348,7 +358,7 @@ function sendCached(res, type, body) {
   res.end(body);
 }
 const VEXFLOW = "/vendor/vexflow-4.2.5-bravura.js";
-const SCRIPTS = ["/piano-core.js", "/piano-fx.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
+const SCRIPTS = ["/piano-core.js", "/piano-fx.js", "/piano-telemetry.js", "/piano-sheet.js", "/piano-lessons.js", "/pitch.js", "/pitch-worklet.js", "/switch.js"];
 const json = (res, code, obj) => send(res, code, "application/json; charset=utf-8", JSON.stringify(obj));
 
 const server = http.createServer(async (req, res) => {

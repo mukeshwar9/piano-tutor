@@ -166,7 +166,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     <button data-fx="off">Off</button><button data-fx="lite">Lite</button><button data-fx="neon">Neon + Sparks</button><button data-fx="all">All</button>
     <input type="range" id="fxInt" min="0" max="100" step="5" value="65" aria-label="Effects intensity"><span id="fxIntVal">65%</span>
   </div>
-  <div class="sub" style="margin-top:8px">Light effects on the TV: glowing falling notes, sparks, lit keys and (All) an aurora behind the notes in the room light's colours. Lite is the light one; the TV steps down by itself when it cannot keep up. On a keyboard at the TV: X cycles them, D shows an fps readout.</div>
+  <div class="sub" style="margin-top:8px">Light effects on the TV: glowing falling notes, sparks, lit keys and (All) an aurora behind the notes in the room light's colours. Lite is the light one; the TV steps down by itself when it cannot keep up. On a keyboard at the TV: X cycles them.</div>
   <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (press ⏪ twice quickly or hold it on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
   <div class="btns" style="margin-top:8px;align-items:center">
     <span class="sub">Loop bars</span>
@@ -195,6 +195,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   </div>
   <div id="kb"></div>
   <div class="sub">Click the keys, or type A W S E D F T G Y H U J K (C4–C5); Z and X shift the octave.</div>
+</div>
+
+<div class="card">
+  <div class="lbl">TV speed (telemetry)</div>
+  <div class="btns"><button id="bTelemetry">Telemetry: off</button></div>
+  <div class="sub" id="telStatus" style="margin-top:8px">Off. Switch it on here, with D on a keyboard at the TV, with ▲ three times quickly on the remote, or open /piano?telemetry=1. The TV then shows fps, frame times and note-to-light delay in its bottom left corner and reports them here.</div>
 </div>
 
 <div class="card"><div class="lbl">Recent notes</div><div id="log"></div></div>
@@ -380,6 +386,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     });
     es.addEventListener("history", function () { loadSongs(); });
     es.addEventListener("tv-state", function (m) { tvState = JSON.parse(m.data); renderState(); });
+    es.addEventListener("telemetry", function (m) { showTelemetry(JSON.parse(m.data)); });
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
       var d = JSON.parse(m.data);
@@ -388,6 +395,24 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       else if (d.whole) playChunk(d);
       else { play(d.events); muteMicFor(d.events); }
     });
+  }
+
+  // The latest numbers the TV reported (telemetry), also readable at GET /api/piano/telemetry.
+  var telLast = null, telTimer = null;
+  function showTelemetry(t) {
+    if (t !== telLast) t.seenAt = Date.now();
+    telLast = t;
+    var l = t && t.latest, sm = t && t.summary, el = $("telStatus");
+    if (!l) { el.textContent = "Nothing reported yet. Switch telemetry on, and open /piano on the TV."; return; }
+    var age = Math.round((t.ageMs + Date.now() - t.seenAt) / 1000);
+    var lat = l.latency ? Math.round(l.latency.last) + " ms (avg " + Math.round(l.latency.avg) + ", max " + Math.round(l.latency.max) + ")" : "no notes yet";
+    el.innerHTML = (age > 6 ? "<b>Last report " + age + " s ago: telemetry is off or the TV is not open.</b><br>" : "") +
+      "fps <b>" + Math.round(l.fps) + "</b> (5 s avg " + Math.round(l.fps5) + ") · worst frame <b>" + Math.round(l.worst) + " ms</b> · long frames in 10 s <b>" + l.long + "</b><br>" +
+      "effects " + esc(l.preset || "off") + " · governor " + (l.level === "" ? "-" : esc(String(l.level))) + " · note→light " + lat + "<br>" +
+      (sm ? "Last " + sm.samples + " reports: fps avg " + sm.fpsMean + ", lowest " + sm.fpsMin + ", worst frame " + sm.worstMs + " ms" + (sm.latency ? ", note→light avg " + sm.latency.avgMs + " ms, max " + sm.latency.maxMs + " ms" : "") + "<br>" : "") +
+      "Chrome " + esc(l.chrome || "?") + " · " + (l.w ? l.w + "×" + l.h + " · " : "") + "dpr " + l.dpr + (typeof l.mem === "number" ? " · memory " + l.mem + " MB" : "");
+    clearTimeout(telTimer);
+    telTimer = setTimeout(function () { showTelemetry(telLast); }, 7000);  // age the line when reports stop
   }
 
   function renderState() {
@@ -454,6 +479,8 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     if (typeof s.clickVolume === "number" && !clickDragging) { $("clickVol").value = s.clickVolume; $("clickVolVal").textContent = s.clickVolume + "%"; }
     if (s.rampTarget && !rampDragging) { $("rampTarget").value = s.rampTarget; $("rampTargetVal").textContent = s.rampTarget + "%"; }
     $("rampStatus").textContent = s.ramp && s.loop && s.tempo ? "Ramp: " + s.rampSpeed + "% \u2192 " + s.rampTarget + "%" : rampStatusText;
+    $("bTelemetry").textContent = s.telemetry ? "Telemetry: on" : "Telemetry: off";
+    $("bTelemetry").className = s.telemetry ? "sel" : "";
     Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
     Array.prototype.forEach.call(document.querySelectorAll("[data-fx]"), function (b) { b.className = b.dataset.fx === s.fx ? "sel" : ""; });
     if (typeof s.fxIntensity === "number" && !fxDragging) { $("fxInt").value = s.fxIntensity; $("fxIntVal").textContent = s.fxIntensity + "%"; }
@@ -942,6 +969,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   var rampStatusText = $("rampStatus").textContent;
   $("speed").oninput = function () { dragging = true; $("speedVal").textContent = $("speed").value + "%"; };
   $("speed").onchange = function () { dragging = false; control("speed", 0, $("speed").value); };
+  $("bTelemetry").onclick = function () { control("telemetry", 0, tvState && tvState.telemetry ? "off" : "on"); };
   $("bFingers").onclick = function () { control("fingers", 0, tvState && tvState.fingers === false ? "on" : "off"); };
   $("bMetronome").onclick = function () { control("metronome", 0, tvState && tvState.metronome ? "off" : "on"); };
   $("bCountIn").onclick = function () { control("countin", 0, tvState && tvState.countInOn ? "off" : "on"); };
@@ -963,6 +991,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   buildKeyboard();
   loadSongs();
   connect();
+  fetch("/api/piano/telemetry").then(function (r) { return r.json(); }).then(showTelemetry).catch(function () {});
   startMidi();
   setInput(input);
   listMics();

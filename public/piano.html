@@ -17,7 +17,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #c{position:absolute;left:0;top:0;width:100%;height:100%}
 /* Aurora (a light effect) is a few CSS elements behind the canvas; fx.attachAurora() sets it up and it is hidden with the effects off. */
 #aurora{display:none}
-#fxdebug{position:absolute;left:.6rem;bottom:.4rem;font:.8rem/1.3 ui-monospace,Menlo,Consolas,monospace;color:#7dffb0;white-space:pre;pointer-events:none;display:none;text-shadow:0 0 .2rem #000}
+/* Telemetry (D, ?telemetry=1 or ▲ three times): a small readout in the bottom left corner, below the side columns and outside the key strip. */
+#telemetry{position:absolute;left:.6rem;bottom:.4rem;font:.75rem/1.3 ui-monospace,Menlo,Consolas,monospace;color:#7dffb0;white-space:pre;pointer-events:none;display:none;text-shadow:0 0 .2rem #000}
+#telemetry.slow{color:var(--amber)}#telemetry.bad{color:var(--red)}
 .side{position:absolute;top:1.2rem;display:flex;flex-direction:column;gap:.9rem;font-variant-numeric:tabular-nums;line-height:1.25}
 .side .lbl{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em}
 .side .val{font-size:1.6rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -119,12 +121,13 @@ body.tutor #toast{z-index:5}
 <div id="toast"></div>
 <div id="listen"></div>
 <div id="count"></div>
-<div id="fxdebug"></div>
+<div id="telemetry"></div>
 <div id="panel"></div>
 <div id="progress"></div>
 <div id="tutor"></div>
 <script src="/piano-core.js"></script>
 <script src="/piano-fx.js"></script>
+<script src="/piano-telemetry.js"></script>
 <script src="/piano-lessons.js"></script>
 <script src="/piano-sheet.js"></script>
 <script src="/vendor/vexflow-4.2.5-bravura.js"></script>
@@ -204,11 +207,15 @@ body.tutor #toast{z-index:5}
   var FX = window.PianoFx;
   var fxSetting = rememberedFx();                // light effects: a preset or a list of layers (see piano-fx.js)
   var fxIntensity = rememberedFxIntensity();     // 0-100
-  var fxDebug = rememberedOnOff("pianoFxDebug", false);  // D: fps and the effects governor's level
+  var TEL = window.PianoTelemetry;
+  var telemetryFlag = TEL.parseFlag(location.search);   // ?telemetry=1 / =0 decides and is remembered; otherwise what was remembered
+  var telemetryOn = telemetryFlag !== null ? telemetryFlag : rememberedOnOff("pianoTelemetry", rememberedOnOff("pianoFxDebug", false));
+  var tel = TEL.create(), telSeq = TEL.createSequence(3, 1200);   // frame statistics; the remote's ▲ ▲ ▲
+  var telEnv = null, telShowAt = 0, telPostAt = 0, telPosting = false;
   var fx = FX.create(ctx);
   if (/[?&]nogov\b/.test(location.search)) fx.setGovernor(false);  // measuring: the governor never steps the effects down
   var fxSnd = {};           // notes Hear it first sounded last frame, to light and release their keys
-  var fxRect = { x: 0, y: 0, w: 0, h: 0 }, fxFps = 60, fxDebugAt = 0;
+  var fxRect = { x: 0, y: 0, w: 0, h: 0 };
 
   // ---------- sizing ----------
 
@@ -470,11 +477,14 @@ body.tutor #toast{z-index:5}
     report();
   }
 
-  // D on a keyboard: fps and the effects governor's level, for measuring on the TV.
-  function toggleFxDebug() {
-    fxDebug = !fxDebug;
-    saveSetting("pianoFxDebug", fxDebug ? "on" : "off");
-    $("fxdebug").style.display = fxDebug ? "block" : "none";
+  // The telemetry readout (D, the link page's button, ▲ three times on the remote): id is "on", "off" or "" to toggle.
+  function setTelemetry(id) {
+    telemetryOn = id === "on" ? true : id === "off" ? false : !telemetryOn;
+    saveSetting("pianoTelemetry", telemetryOn ? "on" : "off");
+    $("telemetry").style.display = telemetryOn ? "block" : "none";
+    telShowAt = telPostAt = 0;
+    toast(telemetryOn ? "Telemetry on" : "Telemetry off");
+    report();
   }
 
   // The player's key went down: the effects light it (red for a wrong key). vel is the MIDI velocity, none from the microphone.
@@ -957,6 +967,7 @@ body.tutor #toast{z-index:5}
     else if (c.cmd === "fingers") setFingers(c.id);
     else if (c.cmd === "fx") setFx(c.id);
     else if (c.cmd === "fxIntensity") setFxIntensity(c.id);
+    else if (c.cmd === "telemetry") setTelemetry(c.id);
     else if (c.cmd === "progress") { if (mode === "play") toggleProgress(c.id === "off" ? false : c.id === "on" ? true : null); }
     else if (c.cmd === "view") setView(c.id);
     else if (c.cmd === "tempo") setTempo(c.id);
@@ -980,7 +991,7 @@ body.tutor #toast{z-index:5}
   // loop, OK pauses (or replays a finished song), ▼ or C calibrates, ⏪ (or P) plays the bar first
   // (Hear it first; pressed twice quickly, or held down, or W, it plays the whole song), ⏩ (or M) switches to the wall, F shows or hides the finger numbers, S opens
   // the progress screen (also the link page's Progress button; OK or Back closes it) V switches
-  // between falling notes, sheet music and both, X cycles the light effects (Off, Lite, Neon + Sparks, All) and D shows the fps readout, B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
+  // between falling notes, sheet music and both, X cycles the light effects (Off, Lite, Neon + Sparks, All) and D shows the telemetry readout (▲ three times does too), B turns the room light (the bulb) on or off and O changes its palette. On a keyboard only (the remote has no free key), T
   // switches tempo mode and - / = change its speed; K switches the metronome, N the count-in and U the
   // speed ramp.
   document.addEventListener("keydown", function (e) {
@@ -1005,7 +1016,11 @@ body.tutor #toast{z-index:5}
     else if (isLoopKey(e)) { e.preventDefault(); if (!e.repeat && mode === "play") toggleLoop(); }
     else if (k === "ArrowLeft") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(-1) : stepSong(-1); } else nudge(-step); e.preventDefault(); }
     else if (k === "ArrowRight") { if (mode === "play") { if (!e.repeat) loop ? moveLoop(1) : stepSong(1); } else nudge(step); e.preventDefault(); }
-    else if ((k === "ArrowUp" || k === "h" || k === "H") && mode === "play") { if (!e.repeat) setHand(P.nextHand(hand)); e.preventDefault(); }
+    else if ((k === "ArrowUp" || k === "h" || k === "H") && mode === "play") {
+      // ▲ three times in a row also switches the telemetry (the remote has no spare key); three hand changes come back to the same hand.
+      if (!e.repeat) { var tel3 = k === "ArrowUp" && telSeq.press(Date.now()); setHand(P.nextHand(hand)); if (tel3) setTelemetry(""); }
+      e.preventDefault();
+    }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
     else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn) { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
@@ -1013,7 +1028,7 @@ body.tutor #toast{z-index:5}
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
     else if ((k === "x" || k === "X") && mode === "play") { if (!e.repeat) setFx(""); }
-    else if ((k === "d" || k === "D") && mode === "play") { if (!e.repeat) toggleFxDebug(); }
+    else if ((k === "d" || k === "D") && mode === "play") { if (!e.repeat) setTelemetry(""); }
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
     else if ((k === "b" || k === "B") && mode === "play") { if (!e.repeat) toggleLight(); }
@@ -1437,7 +1452,7 @@ body.tutor #toast{z-index:5}
       for (i = 0; i < d.events.length; i++) if (d.events[i].on && d.events[i].velocity > 0) ons++;
       for (i = 0; i < d.events.length; i++) {
         var ev = d.events[i];
-        if (ev.on && ev.velocity > 0) noteOn(ev.note, ev.velocity, ons); else noteOff(ev.note);
+        if (ev.on && ev.velocity > 0) { if (telemetryOn) tel.noteArrived(performance.now()); noteOn(ev.note, ev.velocity, ons); } else noteOff(ev.note);
       }
     });
     es.addEventListener("control", function (m) {
@@ -1527,7 +1542,7 @@ body.tutor #toast{z-index:5}
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      learn: tutor ? tutor.screen : "", listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, fx: fxPreset(), fxIntensity: fxIntensity, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      learn: tutor ? tutor.screen : "", telemetry: telemetryOn, listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, fx: fxPreset(), fxIntensity: fxIntensity, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -1613,21 +1628,41 @@ body.tutor #toast{z-index:5}
     countShow();
     fx.suspend(mode !== "play");   // calibration draws as without effects
     fx.step(dt, now);
-    if (fxDebug) fxReadout(dt, now);
     if (hintUntil && now > hintUntil) { $("hint").className = ""; hintUntil = 0; }
     place();
     draw(now);
     side();
+    if (telemetryOn) telemetryFrame(t);
     requestAnimationFrame(frame);
   }
 
-  // The D key's readout: fps, the effects preset, the governor's level, live sparks and the effects' draw time.
-  function fxReadout(dt, now) {
-    if (dt > 0) fxFps += (1000 / dt - fxFps) * 0.1;
-    if (now < fxDebugAt) return;
-    fxDebugAt = now + 250;
-    $("fxdebug").textContent = "fps " + Math.round(fxFps) + "\nfx " + (fx.active ? FX.presetName(fxSetting).toLowerCase() : "off") + "\ngov " + (!fx.active ? "-" : fx.governed ? fx.gov.level : "off") +
-      "\nsparks " + fx.pool.live + "\ndraw " + fx.stats.draw.toFixed(1) + " ms";
+  // Telemetry, once per frame: the frame's start goes into the window and notes waiting for a frame are
+  // stamped as drawn (the end of this frame's own drawing: the browser still presents it after that, up to
+  // a frame later). The readout and the report are made at most twice a second and every 2 s.
+  function telemetryFrame(t) {
+    var at = performance.now();
+    tel.frame(t);
+    tel.noteDrawn(at);
+    if (at < telShowAt) return;
+    telShowAt = at + 500;
+    var r = telemetryReport(at);
+    var el = $("telemetry");
+    el.textContent = TEL.readoutText(r);
+    el.className = TEL.health(r) === "ok" ? "" : TEL.health(r);
+    if (at >= telPostAt && !telPosting) {
+      telPostAt = at + 2000; telPosting = true;
+      postJson("/api/piano/telemetry", r, function () { telPosting = false; });
+    }
+  }
+
+  // The numbers a sample holds: frame statistics, the effects and, where the browser has them, memory.
+  function telemetryReport(at) {
+    if (!telEnv) telEnv = { chrome: TEL.chromeVersion(navigator.userAgent), dpr: window.devicePixelRatio || 1, w: window.innerWidth, h: window.innerHeight };
+    var mem = performance.memory && performance.memory.usedJSHeapSize ? performance.memory.usedJSHeapSize / 1048576 : null;
+    return TEL.report(tel.sample(at), {
+      level: fx.active ? (fx.governed ? fx.gov.level : "off") : "", preset: fx.active ? FX.presetName(fxSetting).toLowerCase() : "off",
+      mem: mem, sparks: fx.pool.live, draw: fx.stats.draw,
+    }, telEnv);
   }
 
   function tempoTick(now) {
@@ -2115,7 +2150,8 @@ body.tutor #toast{z-index:5}
   }
 
   fx.setSetting(fxSetting); fx.setIntensity(fxIntensity); fx.attachAurora($("aurora"));
-  if (fxDebug) $("fxdebug").style.display = "block";
+  if (telemetryFlag !== null) saveSetting("pianoTelemetry", telemetryOn ? "on" : "off");
+  if (telemetryOn) $("telemetry").style.display = "block";
   resize();
   window.addEventListener("resize", resize);
   // Closing or leaving the page ends the whole song on the keyboard (the link page also stops when chunks stop coming).

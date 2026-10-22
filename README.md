@@ -81,13 +81,13 @@ Three steps, from the stool; run again whenever the keyboard or TV moves. Use th
 On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; letters are for a computer keyboard):
 
 - ◀ ▶: previous / next song (while a practice loop runs: move the loop by a bar).
-- ▲ (or H): cycle right hand / left hand / both hands.
+- ▲ (or H): cycle right hand / left hand / both hands. ▲ three times within about a second also switches the telemetry readout (see Telemetry); the three presses cycle the hand all the way round, so it ends as it was.
 - ▼ (or C): calibrate.
 - OK: pause, or replay a finished song. R restarts.
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first. Press Rewind twice within half a second, or hold it, or press W, to hear the whole song instead.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
-- E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: fps readout and the effects governor's level. V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
+- E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: the telemetry readout (fps, frame times, effects level, note-to-light delay). V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
 
@@ -136,9 +136,40 @@ How the effects behave:
 - With the sheet music up, the effects stay in the falling strip below it and the staff panel is drawn on top; with sheet music only, just the key light and short sparks remain. Dimmed notes (the hand not being practised) get no glow.
 - Calibration always draws without effects.
 - If frames run slow the page steps down by itself: slower than 30 fps for 1.5 s drops one level (1: no Aurora, 2: a third of the sparks, 3: lite bars and no hit-line glow) and 8 s of comfortably fast frames bring it back. Changing the level on the TV starts again from the full level.
-- D on a keyboard shows a small readout at the bottom left (fps, the level, live sparks, the effects' draw time in ms). It works with the effects Off too, for measuring a baseline, and is remembered (`pianoFxDebug`). Opening the page as `/piano?nogov` switches the governor off, to measure a level without it stepping down.
+- The telemetry readout (see Telemetry) shows the governor's level next to the preset, the live sparks and the effects' draw time in ms. It works with the effects Off too, for measuring a baseline. Opening the page as `/piano?nogov` switches the governor off, to measure a level without it stepping down.
 
 The code is `public/piano-fx.js` (a module like `piano-core.js`; its settings, governor and particle pool are tested in `test/piano-fx.test.js`).
+
+## Telemetry
+
+Is the Fire TV slow? The TV page can show its own speed in the bottom left corner, below the side columns and clear of the keys, the falling notes and the hit line, and report the same numbers to the server so they can be read from the Mac. It is off by default.
+
+Switch it on or off any of these ways; the choice is remembered by the TV browser (`localStorage` key `pianoTelemetry`):
+
+- On the Fire TV remote: press ▲ three times within about a second. The remote has no free key, so this is a short sequence; the three presses cycle the hands right, left, both and back, so the hand ends as it was, and a toast says "Telemetry on" or "Telemetry off".
+- D on a keyboard at the TV.
+- The link page's Telemetry button (card "TV speed").
+- `/piano?telemetry=1` (or `=0`) in the address; it is remembered too.
+
+What the readout shows (it is redrawn twice a second at most, never per frame):
+
+- fps now (the last second) and the average over 5 s; the worst frame time in the last 5 s; the number of long frames (over 50 ms) in the last 10 s. The text turns amber under 45 fps average and red under 30.
+- The effects preset and the governor's level (`gov -` with the effects off, `gov off` with `?nogov`), the live sparks and the effects' draw time.
+- Note-to-light: the time from a played note arriving at the page (from the link page, over the server) to the end of the frame that draws it, last, average and maximum over 10 s. It shows "no notes yet" until real notes are played; Hear it first and other notes the TV plays itself are not measured. It is the page's own delay (event handling plus waiting for the next frame and drawing it), not the network or the keyboard, and the browser still presents the frame after that, up to one frame later.
+- The Chrome (WebView) version, the device pixel ratio and the viewport size, and JS heap memory where `performance.memory` exists.
+
+While it is on, the TV posts the numbers to `POST /api/piano/telemetry` at most every 2 s (never more than one request in flight). `GET /api/piano/telemetry` returns them from the Mac:
+
+```sh
+curl -s http://localhost:4420/api/piano/telemetry
+```
+
+```json
+{ "live": true, "ageMs": 1400, "latest": { "fps": 48.2, "fps5": 51.7, "worst": 96.4, "long": 3, "level": 1, "preset": "lite", "latency": { "last": 30, "avg": 28.4, "max": 61, "n": 5 }, "mem": 40, "chrome": "114", "dpr": 1.5, "w": 1280, "h": 720, "at": 1700000000000 },
+  "summary": { "samples": 30, "spanMs": 58000, "fpsMean": 51.2, "fpsMin": 44.8, "worstMs": 120.5, "longFrames": 4, "latency": { "avgMs": 29, "maxMs": 88, "notes": 6 } }, "now": 1700000001400 }
+```
+
+`latest` is the newest sample, `summary` covers the newest 30 (about a minute), `ageMs` says how old the latest is and `live` is false when nothing came in the last 6 s (telemetry off, or the TV page closed); `latest` and `summary` are null before the first report. The link page shows the same numbers and updates as they arrive. The server keeps the newest 150 samples in memory only: nothing is written to disk, and a sample holds numbers, the effects preset, the Chrome major version and the screen size, nothing that identifies a person or the device (the user agent is not sent). The code is `public/piano-telemetry.js` (frame window, latency, key sequence, readout; pure, tested in `test/piano-telemetry.test.js`) and `telemetry.js` (the store, tested in `test/telemetry-store.test.js` and `test/server.test.js`). Measuring costs very little: a frame only writes one number into a fixed ring, and the statistics are worked out when the readout is redrawn.
 
 ## Tutorial mode
 
@@ -248,15 +279,15 @@ The TV can share the screen with another page, such as a dashboard on another se
 ## API
 
 - `GET /api/piano/events?role=tv|link|wall`: Server-Sent Events: `midi`, `control`, `calibration`, `light`, `presence`, `tv-state`, `listen`, `songs`, `history`, `switch`.
-- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|fx|fxIntensity|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget|learn", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
+- `POST /api/piano/input` (`{"events":[{"on":true,"note":60,"velocity":90}]}`), `POST /api/piano/control` (`{"cmd":"calibrate|nudge|ok|back|restart|pause|song|hand|loop|listen|fingers|fx|fxIntensity|progress|view|tempo|speed|metronome|metronomeVolume|countin|ramp|rampTarget|learn|fx|fxIntensity|telemetry", ...}`), `POST /api/piano/listen`, `POST /api/piano/device`, `POST /api/piano/state`.
 - `GET /api/piano/songs[/<id>]`, `POST /api/piano/upload?name=<file name>`, `POST /api/piano/import`.
-- `GET|POST /api/piano/light` (the room light switch), `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
+- `GET|POST /api/piano/light` (the room light switch), `GET|POST /api/piano/telemetry` (the TV's speed numbers, see Telemetry), `GET|POST /api/piano/calibration`, `GET|POST /api/piano/history`, `GET /api/piano/presence`.
 - `GET /api/piano/lessons`, `GET /api/piano/lessons/<id>`, `GET|POST /api/piano/progress` (tutorial lessons and `{ lesson, action: "step" | "attempt" | "pass", step?, score? }`).
 - `POST /api/switch`, `GET /api/config`, `GET /api/debug` (viewport beacon, logged).
 
 ## Tests
 
-`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the other hand played for the player (`auto-hand`: when it plays, its scheduling in wait mode, tempo mode and a loop, and the no-output and Both-hands cases), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), the tutorial (`lessons`: lesson validation including every shipped lesson, the step runner, pass marks and retries, progress and unlock order, and the validator script; `lesson-server`: the lesson and progress endpoints), `validate-lessons.js` (run first by `npm test`), sheet music (`piano-sheet`), the light effects' settings, frame-rate governor and particle pool (`piano-fx`), remote keys and switch addresses (`switch`), and the server end to end (`server`).
+`npm test` runs every file in `test/`: calibration math, songs, wait and tempo modes, the practice loop and Hear it first (`piano-core`), hearing the whole song (`whole-song`: the plan, its chunks and the chunked sender against a fake sender and clock), the other hand played for the player (`auto-hand`: when it plays, its scheduling in wait mode, tempo mode and a loop, and the no-output and Both-hands cases), the speed ramp, metronome and count-in (`ramp-metronome`), mic-mode pitch detection on synthesized piano notes (`pitch`), MIDI and MusicXML import (`song-import`, fixtures written by `test/fixtures/make-fixtures.js`), score history and timing (`piano-history`), the room light's colour and bulb handling with a fake UDP bulb and a fake `nc` child (`light`, `bulb`), the song library (`song-library`, which loads every file in `songs/` and checks it is valid), the tutorial (`lessons`: lesson validation including every shipped lesson, the step runner, pass marks and retries, progress and unlock order, and the validator script; `lesson-server`: the lesson and progress endpoints), `validate-lessons.js` (run first by `npm test`), sheet music (`piano-sheet`), the light effects' settings, frame-rate governor and particle pool (`piano-fx`), the TV telemetry (`piano-telemetry`: frame-time window statistics, long frames, note-to-light latency, the remote's key sequence; `telemetry-store`: the server's in-memory store), remote keys and switch addresses (`switch`), and the server end to end (`server`).
 
 ## Licences
 
