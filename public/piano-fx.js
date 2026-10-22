@@ -104,6 +104,21 @@
     return Math.max(0.05, Math.min(1, v / 127));
   }
 
+  // How deep a played key sinks, 0-1, from its velocity 0-1. A floor keeps the softest touch visible and the curve is a
+  // little concave, so a soft and a hard key differ clearly across the whole range (0.3 about 0.44, 0.87 about 0.90).
+  function pressDepth(v) {
+    v = typeof v === "number" && v > 0 ? Math.min(1, v) : MIC_VELOCITY;
+    return 0.12 + 0.88 * Math.pow(v, 0.85);
+  }
+
+  // How far of its depth key state s is down at time now, 0-1: about 45 ms to go down, about 120 ms to spring back.
+  function sinkAmount(s, now) {
+    if (!s) return 0;
+    if (s.on) { var t = now - s.t0; return t >= 45 ? 1 : t <= 0 ? 0 : 1 - Math.pow(1 - t / 45, 2); }
+    var held = s.tOff - s.t0, lv = held >= 45 ? 1 : held <= 0 ? 0 : 1 - Math.pow(1 - held / 45, 2), r = now - s.tOff;
+    return r > 400 ? 0 : lv * Math.exp(-r / 120);
+  }
+
   // A chord of n notes shares one flash and spark budget, so a big chord brightens the screen instead of whiting it out.
   function chordShare(n) { return 1 / Math.sqrt(Math.max(1, n || 1)); }
 
@@ -254,7 +269,7 @@
     var energy = 0, lastPc = 0, lastNow = 0, suspended = false, govOn = true;
     var curt = [], aur = null, aurNext = 0, aurRect = null;
     var stats = { draw: 0 };
-    var look = { fill: "", sink: 0, rim: null, rimAlpha: 0 };
+    var look = { fill: "", sink: 0, depth: 0, rim: null, rimAlpha: 0 };
     var fx = { gov: gov, pool: pool, stats: stats, get cfg() { return cfg; }, get active() { return cfg.on && !suspended; }, get governed() { return govOn; } };
     for (var ci = 0; ci < 5; ci++) curt.push({ x: 0.2 + ci * 0.15, tx: 0.5, pc: ci * 2, a: 0, phase: ci * 1.7 });
 
@@ -446,22 +461,24 @@
       var s = keyState[m]; if (!s) return null;
       var e = envelope(s, now); if (!(s.on || e > 0.01)) return null;
       var base = kk.black ? BLACK_BASE : WHITE_BASE, hcol = s.kind === "wrong" ? RED : hex(HAND[s.hand].want);
-      var dep = Math.round(4 * U);
-      look.fill = baseFill; look.sink = 0; look.rim = null; look.rimAlpha = 0;
+      look.fill = baseFill; look.sink = 0; look.depth = 0; look.rim = null; look.rimAlpha = 0;
       if (s.kind === "music") {
         // Hear it first: a tint and a bright rim, and the key does not sink.
         look.fill = css(mix(base, hcol, 0.45 * Math.min(1, e + 0.2)));
         look.rim = HAND[s.hand].white; look.rimAlpha = Math.min(1, e + 0.3);
       } else {
-        look.sink = s.on ? dep : Math.round(dep * e);
-        if (!judged) look.fill = css(mix(base, hcol, Math.min(1, 0.35 + e)));
+        // The dip follows how hard the key was played (the microphone has no velocity: mid depth); the colour is a touch
+        // stronger for a harder key.
+        look.depth = sinkAmount(s, now);
+        look.sink = Math.round((kk.black ? 10 : 14) * U * pressDepth(s.vel) * look.depth);
+        if (!judged) look.fill = css(mix(base, hcol, Math.min(1, 0.25 + 0.2 * s.vel + e * 0.6)));
       }
       return look;
     };
 
     // The shade under a sunk key and the rim of a Hear it first key.
     fx.keyDecor = function (lk, x0, x1, kh) {
-      if (lk.sink > 0) { ctx.globalAlpha = 0.7; ctx.drawImage(S.keyShade, x0 + 1, keyTop + lk.sink, x1 - x0 - 2, Math.round(kh * 0.25)); ctx.globalAlpha = 1; }
+      if (lk.sink > 0) { ctx.globalAlpha = 0.35 + 0.4 * Math.min(1, lk.sink / (12 * U)); ctx.drawImage(S.keyShade, x0 + 1, keyTop + lk.sink, x1 - x0 - 2, Math.round(kh * 0.25)); ctx.globalAlpha = 1; }
       if (lk.rim) {
         var rim = Math.max(2, Math.round(3 * U));
         ctx.fillStyle = lk.rim; ctx.globalAlpha = lk.rimAlpha;
@@ -536,7 +553,7 @@
   return {
     LAYERS: LAYERS, PRESETS: PRESETS, DEFAULT_SETTING: DEFAULT_SETTING, DEFAULT_INTENSITY: DEFAULT_INTENSITY, MIC_VELOCITY: MIC_VELOCITY, POOL_CAP: POOL_CAP,
     SLOW_MS: SLOW_MS, SLOW_HOLD_MS: SLOW_HOLD_MS, FAST_MS: FAST_MS, FAST_HOLD_MS: FAST_HOLD_MS, MAX_LEVEL: MAX_LEVEL,
-    parseSetting: parseSetting, isSetting: isSetting, presetName: presetName, nextSetting: nextSetting, parseIntensity: parseIntensity, velocity01: velocity01, chordShare: chordShare,
+    parseSetting: parseSetting, isSetting: isSetting, presetName: presetName, nextSetting: nextSetting, parseIntensity: parseIntensity, velocity01: velocity01, pressDepth: pressDepth, sinkAmount: sinkAmount, chordShare: chordShare,
     createGovernor: createGovernor, createPool: createPool, envelope: envelope, paletteRgb: paletteRgb, PALETTES: PALETTES, create: create,
   };
 });

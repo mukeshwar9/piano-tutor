@@ -1811,7 +1811,7 @@ body.tutor #toast{z-index:5}
     ctx.fillStyle = "#2a3446"; ctx.fillRect(c.left, hitY, c.right - c.left, Math.max(2, Math.round(2 * DPR)));
 
     // Keys: whites first, blacks on top at their real offsets.
-    var blackH = Math.round((H - keyTop) * 0.62);
+    var blackH = Math.round((H - keyTop) * 0.62), lowFx = fxOn && fx.governed && fx.gov.level >= 3;
     for (var pass = 0; pass < 2; pass++) {
       for (var m = layout.low; m <= layout.high; m++) {
         var kk = layout.keys[m];
@@ -1827,10 +1827,13 @@ body.tutor #toast{z-index:5}
         var fxLook = fxOn ? fx.keyLook(m, kk, fill, !!fl, now) : null, sink = 0;
         if (fxLook) { fill = fxLook.fill; sink = fxLook.sink; }
         ctx.fillStyle = fill;
-        if (kk.black) ctx.fillRect(x0, keyTop + sink, x1 - x0, blackH - sink);
-        else {
+        if (kk.black) {
+          if (!lowFx) { ctx.fillStyle = "rgba(0,0,0,.3)"; ctx.fillRect(x1, keyTop, Math.round(4 * DPR), blackH - sink); ctx.fillStyle = fill; }
+          ctx.fillRect(x0, keyTop + sink, x1 - x0, blackH - sink);
+        } else {
           ctx.fillRect(x0 + 1, keyTop + sink, x1 - x0 - Math.max(1, Math.round(DPR)), H - keyTop - sink);
         }
+        keyRelief(x0, x1, keyTop + sink, kk.black ? blackH - sink : H - keyTop - sink, kk.black, sink, lowFx);
         if (fxLook) fx.keyDecor(fxLook, x0, x1, kk.black ? blackH : H - keyTop);
         // The lit key carries the finger that plays it.
         var lf = !fingersShown() || held[m] ? 0 : want[m] === "want" ? current.fingers && current.fingers[m] : want[m] === "sound" ? snd[m].finger : 0;
@@ -1846,6 +1849,26 @@ body.tutor #toast{z-index:5}
     if (mode === "cal1" || mode === "cal2") {
       edge(work.left, mode === "cal1"); edge(work.right, mode === "cal2");
     }
+  }
+
+  // The raised look of a key, drawn over its fill with plain rectangles (no gradients, so it costs next to nothing): a lit top
+  // edge, a darker right side face and, on a black key, a bevelled top. A sunk key loses its edges (it is flush) and keeps
+  // only the shade. Stays inside the key's own rectangle, so the aligned geometry does not change.
+  function keyRelief(x0, x1, top, h, black, sink, low) {
+    var d = Math.max(1, Math.round(DPR)), w = black ? x1 - x0 : x1 - x0 - d, x = black ? x0 : x0 + 1;
+    if (h <= 0) return;
+    if (black) {
+      var b = Math.round(3 * DPR), bb = Math.round(8 * DPR);
+      ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(x1 - b, top, b, h); ctx.fillRect(x, top, b, h);
+      if (!sink) { ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(x + b, top, w - 2 * b, Math.max(1, h - bb)); }
+      ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(x, top + h - bb, w, bb);
+      return;
+    }
+    var side = Math.round(4 * DPR);
+    ctx.fillStyle = "rgba(0,0,0,.16)"; ctx.fillRect(x + w - side, top, side, h);
+    if (low) return;
+    ctx.fillStyle = sink ? "rgba(0,0,0,.12)" : "rgba(255,255,255,.7)"; ctx.fillRect(x, top, w - side, Math.max(d, Math.round(3 * DPR)));
+    if (!sink) { ctx.fillStyle = "rgba(0,0,0,.07)"; ctx.fillRect(x, top + h - Math.round(h * 0.12), w - side, Math.round(h * 0.12)); }
   }
 
   // ---------- sheet music ----------

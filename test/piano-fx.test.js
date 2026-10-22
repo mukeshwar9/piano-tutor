@@ -143,6 +143,31 @@ assert.deepStrictEqual(F.paletteRgb("nope", 3), F.paletteRgb("spectrum", 3));
 assert.notDeepStrictEqual(F.paletteRgb("ocean", 0), F.paletteRgb("sunset", 0));
 for (const name of Object.keys(F.PALETTES)) for (let pc = 0; pc < 12; pc++) F.paletteRgb(name, pc).forEach((v) => assert(v >= 0 && v <= 255 && Number.isInteger(v)));
 
+// Key press depth: follows velocity, monotonic, always visible, the microphone's mid depth is fixed.
+{
+  let prev = -1;
+  for (let v = 7; v <= 127; v++) { const d = F.pressDepth(F.velocity01(v, false)); assert(d > prev, "deeper for a harder key"); prev = d; assert(d >= 0.12 && d <= 1); }
+  assert(F.pressDepth(F.velocity01(1, false)) >= 0.12, "the softest touch still dips");
+  assert(F.pressDepth(1) <= 1 && Math.abs(F.pressDepth(1) - 1) < 1e-9, "full velocity is full depth");
+  assert(F.pressDepth(F.velocity01(110)) > 1.7 * F.pressDepth(F.velocity01(25)), "soft and hard are clearly different");
+  assert.strictEqual(F.pressDepth(F.velocity01(100, true)), F.pressDepth(F.MIC_VELOCITY), "the microphone is a fixed mid depth");
+  assert.strictEqual(F.pressDepth(undefined), F.pressDepth(F.MIC_VELOCITY));
+  assert.strictEqual(F.pressDepth(5), F.pressDepth(1), "above 1 is clamped");
+  // Going down and springing back.
+  const on = { on: true, t0: 1000, tOff: 0 };
+  assert.strictEqual(F.sinkAmount(null, 0), 0);
+  assert.strictEqual(F.sinkAmount(on, 1000), 0);
+  assert(F.sinkAmount(on, 1020) > 0.5 && F.sinkAmount(on, 1020) < 1, "on its way down");
+  assert.strictEqual(F.sinkAmount(on, 1045), 1);
+  assert.strictEqual(F.sinkAmount(on, 9000), 1, "stays down while held");
+  const off = { on: false, t0: 1000, tOff: 2000 };
+  assert.strictEqual(F.sinkAmount(off, 2000), 1);
+  assert(F.sinkAmount(off, 2060) < 0.7 && F.sinkAmount(off, 2060) > 0.3, "springs back");
+  assert.strictEqual(F.sinkAmount(off, 2401), 0);
+  const quick = { on: false, t0: 1000, tOff: 1010 };
+  assert(F.sinkAmount(quick, 1010) < 0.5, "a tap released early only went part way down");
+}
+
 // The effects object with a fake canvas context: Off draws nothing, a wrong key gets red light and no sparks,
 // suspending (calibration) draws nothing, and Lite stays inside the pool cap.
 {
@@ -168,6 +193,15 @@ for (const name of Object.keys(F.PALETTES)) for (let pc = 0; pc < 12; pc++) F.pa
   assert.strictEqual(fx.pool.live, sparks, "a wrong key throws none");
   const lk = fx.keyLook(62, layout.keys[62], "#e9edf3", false, 1020);
   assert(lk && lk.sink > 0, "a pressed key sinks");
+  // The dip follows the velocity: a hard key sinks deeper than a soft one, the microphone sits between, a tutor-lit key does not sink.
+  fx.reset();
+  fx.noteOn(60, F.velocity01(20), "right", "player", 1, 1000); fx.noteOn(62, F.velocity01(120), "right", "player", 1, 1000); fx.noteOn(64, F.velocity01(0, true), "right", "player", 1, 1000);
+  const soft = fx.keyLook(60, layout.keys[60], "#e9edf3", false, 1100).sink, hard = fx.keyLook(62, layout.keys[62], "#e9edf3", false, 1100).sink, mic = fx.keyLook(64, layout.keys[64], "#e9edf3", false, 1100).sink;
+  assert(soft > 0 && soft < mic && mic < hard, "soft < microphone < hard");
+  fx.noteOff && fx.noteOff(62, 1200);
+  assert(fx.keyLook(62, layout.keys[62], "#e9edf3", false, 1300) === null || fx.keyLook(62, layout.keys[62], "#e9edf3", false, 1300).sink < hard, "it springs back after release");
+  assert.strictEqual(fx.keyLook(61, layout.keys[61], "#e9edf3", false, 1100), null, "a key nobody played is untouched (a tutor-lit key is the page's own fill)");
+  fx.reset(); fx.noteOn(62, 0.8, "right", "wrong", 1, 1000); fx.noteOn(60, 0.8, "right", "player", 1, 1000);
   const music = (fx.noteOn(64, 0.7, "left", "music", 1, 1000), fx.keyLook(64, layout.keys[64], "#fff", false, 1050));
   assert(music && music.sink === 0 && music.rim, "a Hear it first key has a rim and does not sink");
   assert.strictEqual(fx.keyLook(62, layout.keys[62], "#3ddc84", true, 1020).fill, "#3ddc84", "a judgement colour wins over the hand colour");
