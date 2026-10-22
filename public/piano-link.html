@@ -362,10 +362,12 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       dot("dSrv", "bad"); $("sSrv").textContent = "Server unreachable, retrying…";
       // A lost connection ends a song cleanly: the rest of it is not coming.
       if (whole) { stopPlaying(); micMuteUntil = 0; $("listenStatus").textContent = "Connection lost: the song stopped."; }
+      stopAuto();
     };
     es.addEventListener("presence", function (m) {
       var p = JSON.parse(m.data);
       dot("dTv", p.tv ? "ok" : "warn");
+      if (!p.tv) stopAuto();   // nobody is left to say when the other hand's notes end
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("light", function (m) { showLight(JSON.parse(m.data)); });
@@ -381,7 +383,8 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     es.addEventListener("songs", function (m) { showSongs(JSON.parse(m.data).songs); });
     es.addEventListener("listen", function (m) {
       var d = JSON.parse(m.data);
-      if (d.stop) { stopPlaying(); micMuteUntil = 0; }
+      if (d.auto) playAuto(d);
+      else if (d.stop) { stopPlaying(); micMuteUntil = 0; }
       else if (d.whole) playChunk(d);
       else { play(d.events); muteMicFor(d.events); }
     });
@@ -788,9 +791,42 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     }, Math.max(0, base + d.span - now) + SILENCE_MS);
   }
 
+  // The other hand, played for the player (see P.autoHandPlayer): the TV sends the few notes due next and
+  // they are queued on the output like the others, but kept apart from Hear it first so that one never
+  // touches the other. autoQ holds what may still sound: { note, on, off } in performance.now() time.
+  var autoQ = [];
+  function playAuto(d) {
+    if (d.restart) stopAuto();
+    if (!out || !d.events.length) return;
+    var t0 = performance.now(), now = t0;
+    autoQ = autoQ.filter(function (q) { return q.off > now; });
+    P.midiMessages(d.events, t0).forEach(function (m) {
+      out.send(m.data, m.time);
+      echo.expect(m.data[0] === 0x90, m.data[1], m.time);
+    });
+    d.events.forEach(function (e) { autoQ.push({ note: e.note, on: t0 + e.at, off: t0 + e.at + Math.max(1, e.dur) }); });
+  }
+
+  // Releases the other hand: keys sounding now are lifted at once and a note still queued to start is
+  // cut to a millisecond, as Chrome cannot take back what was queued. Never throws; the TV may be gone.
+  function stopAuto() {
+    var q = autoQ; autoQ = [];
+    if (!out || !q.length) return;
+    var now = performance.now();
+    try {
+      q.forEach(function (n) {
+        if (n.off <= now) return;
+        var t = n.on > now ? n.on + 1 : now;
+        out.send([0x80, n.note, 0], t);
+        echo.expect(false, n.note, t);
+      });
+    } catch (e) {}
+  }
+
   // Stops a playback early: clears what is still queued (where Chrome supports it) and releases every
   // key it used.
   function stopPlaying() {
+    stopAuto();
     if (whole) { clearTimeout(whole.timer); whole = null; }
     if (!out || !played.length) return;
     try { if (out.clear) out.clear(); } catch (e) {}

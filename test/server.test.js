@@ -190,6 +190,18 @@ async function waitForServer() {
       { events: [{ note: 65, at: 100, dur: 400 }], whole: true, first: false, last: true, base: 3 * 3600000, span: 4000 },
       { stop: true },
     ]);
+    // The other hand played for the player: notes due soon, a restart that may carry none, and a stop of only these.
+    hear.events.length = 0;
+    assert.strictEqual((await request("POST", "/api/piano/listen", { auto: true, events: [] })).status, 400, "nothing to play and no restart");
+    assert.strictEqual((await request("POST", "/api/piano/listen", { auto: true, events: [ev(48, 0), ev(300, 0), ev(50, 9000), { note: 52, at: 10, dur: 0 }] })).status, 200);
+    assert.strictEqual((await request("POST", "/api/piano/listen", { auto: true, restart: true, events: [] })).status, 200, "a new pass with no notes yet still releases the old ones");
+    assert.strictEqual((await request("POST", "/api/piano/listen", { auto: true, stop: true })).status, 200);
+    await wait(300);
+    assert.deepStrictEqual(hear.events.filter((e) => e.event === "listen").map((e) => e.data), [
+      { auto: true, restart: false, events: [{ note: 48, at: 0, dur: 400 }] },
+      { auto: true, restart: true, events: [] },
+      { auto: true, stop: true },
+    ]);
     assert.strictEqual((await request("POST", "/api/piano/control", { cmd: "listenAll" })).status, 200, "the link page can ask the TV to play the whole song");
     for (const cmd of ["fx", "fxIntensity"]) assert.strictEqual((await request("POST", "/api/piano/control", { cmd, id: "lite" })).status, 200, "the link page can set the light effects: " + cmd);
     hear.stop();

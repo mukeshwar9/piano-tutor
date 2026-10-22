@@ -654,6 +654,74 @@
     return out;
   }
 
+  // ---------- the other hand plays itself ----------
+
+  // While one hand is practised the keyboard plays the other, a little at a time: the notes about to
+  // fall due within AUTO_AHEAD_MS go to the link page, which queues them on the MIDI output.
+  var AUTO_AHEAD_MS = 250;
+  // A note found more than this late (a stalled frame) is skipped instead of played in a burst.
+  var AUTO_STALE_MS = 100;
+
+  // Why the other hand cannot be played on the keyboard now ("" when it can): st is { output, input,
+  // link }, the link page's MIDI output name, its input kind ("mic" or "midi") and the open link pages.
+  // The notes then stay as they are, dimmed and not waited for.
+  function autoHandBlocker(st) {
+    if (!st || !st.link) return "no link page is open";
+    if (st.input === "mic") return "the microphone is the input";
+    if (!st.output) return "the link page has no MIDI output";
+    return "";
+  }
+
+  // The player for the hand not being practised, or null when there is nothing for it to play: both
+  // hands practised, a song with one hand only, or no notes of the other hand inside the loop.
+  // opts.hand is the hand mode, opts.loop the practice loop in bars. next(clock, beatMs, waitAt) is
+  // called every frame with the song clock in beats, the length of a beat in ms (the song's tempo,
+  // scaled by the speed in tempo mode) and, in wait mode, the beat of the step the player's hand is
+  // waited for at (null in tempo mode). It returns { restart, events: [{ note, at, dur }] } with at and
+  // dur in ms from now: the notes starting before the clock reaches AUTO_AHEAD_MS ahead and before
+  // waitAt, each once. A clock that went back (a new loop pass) is a restart: whatever still sounds
+  // should be released first. In wait mode the clock stops at waitAt, so the notes stop being sent;
+  // they go on when the player's hand moves the song on, and the loop's own range bounds them.
+  function autoHandPlayer(song, opts) {
+    if (!song || !song.beatsPerBar) return null;
+    var mine = playHand(song, opts && opts.hand);
+    if (mine === "both") return null;
+    var hand = mine === "right" ? "left" : "right";
+    var loop = clampLoop(song, opts.loop);
+    var lo = loop ? (loop.from - 1) * song.beatsPerBar : -Infinity, hi = loop ? loop.to * song.beatsPerBar : Infinity;
+    var notes = [];
+    for (var i = 0; i < song.notes.length; i++) {
+      var n = song.notes[i];
+      if ((n.hand || "right") === hand && n.start >= lo - 1e-6 && n.start < hi - 1e-6) notes.push(n);
+    }
+    if (!notes.length) return null;
+    notes.sort(function (a, b) { return a.start - b.start || a.note - b.note; });
+    var cursor = null, last = 0;
+    return {
+      hand: hand,
+      notes: notes.length,
+      next: function (clock, beatMs, waitAt) {
+        var restart = false;
+        if (cursor == null) cursor = clock;
+        else if (clock < last - 1e-6) { restart = true; cursor = clock; }
+        last = clock;
+        var from = Math.max(cursor, clock - AUTO_STALE_MS / beatMs), limit = clock + AUTO_AHEAD_MS / beatMs;
+        if (waitAt != null) limit = Math.min(limit, waitAt - 1e-6);
+        var events = [];
+        if (limit > cursor) {
+          for (var j = 0; j < notes.length; j++) {
+            var m = notes[j];
+            if (m.start < from - 1e-6 || m.start >= limit) continue;
+            var ms = Math.min(m.length, hi - m.start) * beatMs;
+            events.push({ note: m.note, at: Math.max(0, Math.round((m.start - clock) * beatMs)), dur: Math.max(1, Math.round(ms - Math.min(ms * 0.1, LISTEN_GAP_MS))) });
+          }
+          cursor = limit;
+        }
+        return { restart: restart, events: events };
+      },
+    };
+  }
+
   // ---------- hear the whole song ----------
 
   // The whole song reaches the link page in chunks: each covers WHOLE_CHUNK_MS of the song and is sent
@@ -939,6 +1007,7 @@
     advanceClock: advanceClock, hint: hint, createSession: createSession,
     createTempoSession: createTempoSession, clampSpeed: clampSpeed, countIn: countIn,
     TEMPO_WINDOW_MS: TEMPO_WINDOW_MS, TEMPO_ON_MS: TEMPO_ON_MS, SPEED_MIN: SPEED_MIN, SPEED_MAX: SPEED_MAX, SPEED_STEP: SPEED_STEP,
+    autoHandBlocker: autoHandBlocker, autoHandPlayer: autoHandPlayer, AUTO_AHEAD_MS: AUTO_AHEAD_MS, AUTO_STALE_MS: AUTO_STALE_MS,
     wholeBlocker: wholeBlocker, listenPending: listenPending, hearKeyAction: hearKeyAction, hearHeld: hearHeld, wholeSongPlan: wholeSongPlan, songChunks: songChunks, songPlayer: songPlayer, WHOLE_CHUNK_MS: WHOLE_CHUNK_MS, WHOLE_AHEAD_MS: WHOLE_AHEAD_MS,
     listenPlan: listenPlan, sounding: sounding, midiMessages: midiMessages, echoFilter: echoFilter, LISTEN_GAP_MS: LISTEN_GAP_MS, LISTEN_LEAD_MS: LISTEN_LEAD_MS,
     RAMP_STEP: RAMP_STEP, RAMP_TARGET: RAMP_TARGET, rampSpeed: rampSpeed, beatLengthMs: beatLengthMs, metronomeBeats: metronomeBeats, countInBeats: countInBeats,
