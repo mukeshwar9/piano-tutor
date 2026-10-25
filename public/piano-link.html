@@ -6,204 +6,337 @@
 <title>Piano link</title>
 <style>
 :root{
-  --bg:#0b0f17;--card:#131a27;--line:#1c2433;--line2:#2a3446;
+  --bg:#0b0f17;--card:#131a27;--line:#1c2433;--line2:#2a3446;--chip:#1c2638;
   --txt:#e8edf5;--txt2:#b7c2d6;--mut:#8b97ab;--dim:#5d687c;
   --blue:#4da3ff;--green:#3ddc84;--amber:#ffb020;--red:#ff5252;
+  --rh:#8cc6ff;--lh:#ff9ff0;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* One type scale in rem: .8 labels, .9 names, 1 body, 1.25 values, 1.5 title. The TV (and anything
+   wide) gets a bigger root so every size follows. */
+html{font-size:16px}
+@media (min-width:1500px){html{font-size:22px}}
 html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-body{max-width:760px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:14px;font-variant-numeric:tabular-nums}
-h1{font-size:22px;font-weight:800}
-h1 small{font-size:14px;font-weight:500;color:var(--mut);margin-left:8px}
-.card{background:var(--card);border-radius:12px;padding:14px 16px}
-.lbl{font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
-.row{display:flex;align-items:center;gap:10px;font-size:16px;line-height:1.5}
-.dot{width:12px;height:12px;border-radius:50%;background:var(--dim);flex:none}
+body{max-width:58rem;margin:0 auto;padding:1rem;display:flex;flex-direction:column;gap:.9rem;font-variant-numeric:tabular-nums;font-size:1rem}
+@media (min-width:1500px){body{max-width:80rem;padding:1.2rem 1.5rem}}
+
+header{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4rem 1.2rem}
+h1{font-size:1.5rem;font-weight:800;margin-right:auto}
+h1 small{font-size:.9rem;font-weight:500;color:var(--mut);margin-left:.5rem}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:.4rem;font-size:.85rem;font-weight:700;color:var(--txt2);background:var(--card);border-radius:2rem;padding:.25rem .7rem}
+
+.grid{display:grid;gap:.9rem;align-items:start}
+@media (min-width:1400px){.grid{grid-template-columns:1fr 1fr}}
+.col{display:flex;flex-direction:column;gap:.9rem;min-width:0}
+.card{background:var(--card);border-radius:.8rem;padding:.9rem 1.1rem}
+h2,.lbl{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin-bottom:.4rem}
+
+/* A setting: its name on the left, the choices on the right, a hairline between settings. */
+.set{display:grid;grid-template-columns:7.5rem 1fr;gap:.35rem 1rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--line)}
+h2+.set,.lbl+.set,.set:first-of-type{border-top:0}
+@media (max-width:560px){.set{grid-template-columns:1fr}}
+.name{font-size:.9rem;font-weight:700;color:var(--txt2)}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.ctl.full{grid-column:1/-1}
+.val{font-size:1.25rem;font-weight:800;min-width:3.4rem;text-align:right}
+.row{display:flex;align-items:center;gap:.6rem;font-size:1rem;line-height:1.5}
+.dot{width:.75rem;height:.75rem;border-radius:50%;background:var(--dim);flex:none}
 .dot.ok{background:var(--green)}.dot.warn{background:var(--amber)}.dot.bad{background:var(--red)}
-.sub{font-size:14px;color:var(--txt2);line-height:1.45}
-.btns{display:flex;flex-wrap:wrap;gap:8px}
-button{font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:#1c2638;border:1px solid var(--line2);border-radius:10px;padding:10px 14px;min-width:52px;cursor:pointer}
-button:active{background:#2a3a55}
-select{font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:#1c2638;border:1px solid var(--line2);border-radius:10px;padding:10px 14px;min-width:200px}
-button.pri{background:var(--blue);border-color:var(--blue);color:#07101d}
+.sub{font-size:.9rem;color:var(--txt2);line-height:1.45}
+.note{font-size:.85rem;color:var(--mut);line-height:1.45;margin-top:.5rem}
+.btns{display:flex;flex-wrap:wrap;gap:.4rem}
+
+button{font:inherit;font-size:1rem;font-weight:700;color:var(--txt);background:var(--chip);border:1px solid var(--line2);border-radius:.6rem;padding:.55rem .85rem;min-width:3rem;cursor:pointer;transition:background .12s,transform .12s}
+button:active{background:#2a3a55;transform:scale(.97)}
+button:disabled{opacity:.45;cursor:default}
+select{font:inherit;font-size:1rem;font-weight:700;color:var(--txt);background:var(--chip);border:1px solid var(--line2);border-radius:.6rem;padding:.55rem .85rem;min-width:12rem;max-width:100%}
+/* An action worth finding first is outlined; a filled blue button is a chosen option. */
+button.pri{background:rgba(77,163,255,.16);border-color:var(--blue);color:#d4e9ff}
+/* The chosen one of a few: filled. Toggles read On or Off. */
 button.sel{background:#2a3a55;border-color:var(--blue)}
-#bRight.sel{border-color:#8cc6ff;color:#8cc6ff}#bLeft.sel{border-color:#ff9ff0;color:#ff9ff0}
+.seg button.sel,.tog.sel{background:var(--blue);border-color:var(--blue);color:#07101d}
+#bRight.sel{background:var(--rh);border-color:var(--rh);color:#07101d}
+#bLeft.sel{background:var(--lh);border-color:var(--lh);color:#07101d}
+.tog{min-width:4.2rem}
 select.bar{min-width:0}
-input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
-#speedVal,#clickVolVal,#rampTargetVal{font-weight:800;min-width:48px;text-align:right}
-#play .rh{color:#8cc6ff;font-weight:800}#play .lh{color:#ff9ff0;font-weight:800}
-#play{font-size:15px;color:var(--txt2);line-height:1.6}
+input[type=range]{flex:1;min-width:9rem;height:2rem;accent-color:var(--blue)}
+
+/* Focus has to be seen from the sofa: a white ring with a blue halo, never clipped. */
+:focus{outline:none}
+:focus-visible{outline:.18rem solid #fff;outline-offset:.14rem;box-shadow:0 0 0 .42rem rgba(77,163,255,.55);position:relative;z-index:2}
+
+/* Folded groups: the heading line says what is set without opening them. */
+details.more{background:var(--card);border-radius:.8rem}
+details.more>summary{display:flex;align-items:center;gap:.8rem;padding:.8rem 1.1rem;list-style:none;cursor:pointer;border-radius:.8rem}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"";width:.5rem;height:.5rem;border-right:.15rem solid var(--mut);border-bottom:.15rem solid var(--mut);transform:rotate(-45deg);transition:transform .15s;flex:none;margin:0 .2rem 0 .1rem}
+details.more[open]>summary::before{transform:rotate(45deg)}
+details.more>summary .t{font-size:1rem;font-weight:800}
+details.more>summary .v{font-size:.9rem;color:var(--txt2);margin-left:auto;text-align:right}
+details.more>.body{padding:0 1.1rem 1rem}
+.morehead{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin:.3rem 0 -.3rem}
+@media (prefers-reduced-motion:reduce){button,details.more>summary::before{transition:none}button:active{transform:none}}
+
+#play{font-size:.95rem;color:var(--txt2);line-height:1.6}
+#play .rh{color:var(--rh);font-weight:800}#play .lh{color:var(--lh);font-weight:800}
 #play b{color:var(--txt)}
 #play .want{color:var(--amber);font-weight:800}
-#kb{position:relative;height:120px;user-select:none;touch-action:none;margin-top:4px}
-#kb div{position:absolute;top:0;border:1px solid #6b7890;border-radius:0 0 5px 5px}
-#kb .w{background:#e9edf3;height:120px;z-index:1}
-#kb .b{background:#10141c;height:74px;z-index:2}
+#kb{position:relative;height:7.5rem;user-select:none;touch-action:none;margin-top:.5rem}
+#kb div{position:absolute;top:0;border:1px solid #6b7890;border-radius:0 0 .3rem .3rem}
+#kb .w{background:#e9edf3;height:7.5rem;z-index:1}
+#kb .b{background:#10141c;height:4.6rem;z-index:2}
 #kb .on{background:var(--blue)!important}
-#kb span{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:11px;color:#56627a}
-#files{display:flex;flex-direction:column;gap:10px;margin-top:10px}
-.file{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
-.file b{font-size:16px}.file .err{color:var(--red)}
-.file select{min-width:0;padding:6px 10px;font-size:14px}.file button{padding:6px 10px;font-size:14px}
-#drop.over{outline:2px dashed var(--blue);outline-offset:4px}
-#meter{position:relative;height:14px;background:#0b111c;border:1px solid var(--line2);border-radius:7px;overflow:hidden;margin-top:8px}
+#kb span{position:absolute;bottom:.25rem;left:0;right:0;text-align:center;font-size:.7rem;color:#56627a}
+#files{display:flex;flex-direction:column;gap:.6rem;margin-top:.6rem}
+.file{border-top:1px solid var(--line);padding-top:.6rem;display:flex;flex-direction:column;gap:.4rem}
+.file b{font-size:1rem}.file .err{color:var(--red)}
+.file select{min-width:0;padding:.35rem .6rem;font-size:.9rem}.file button{padding:.35rem .6rem;font-size:.9rem}
+#drop.over{outline:.14rem dashed var(--blue);outline-offset:.25rem}
+#meter{position:relative;height:.9rem;background:#0b111c;border:1px solid var(--line2);border-radius:.45rem;overflow:hidden;margin-top:.5rem}
 #meterBar{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mut)}
 #meterBar.on{background:var(--green)}
 #meterGate{position:absolute;top:0;bottom:0;width:2px;background:var(--amber)}
-#micNote{font-size:28px;font-weight:800;min-width:64px}
-#log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut);white-space:pre;max-height:110px;overflow:hidden}
+#micNote{font-size:1.75rem;font-weight:800;min-width:4rem}
+#log{font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:var(--mut);white-space:pre;max-height:7rem;overflow:hidden}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:.35rem 1rem;font-size:.9rem;color:var(--txt2);line-height:1.45}
+.keys b{color:var(--txt)}
 </style>
 </head>
 <body>
-<h1>Piano link <small>keyboard → TV</small></h1>
-
-<div class="card">
-  <div class="lbl">Input</div>
-  <div class="btns">
-    <button data-input="midi">Keyboard cable (MIDI)</button><button data-input="mic">Microphone</button>
+<header>
+  <h1>Piano link <small>keyboard → TV</small></h1>
+  <div class="chips" aria-label="Connection">
+    <span class="chip"><i class="dot" id="hMidi"></i>Keyboard</span>
+    <span class="chip"><i class="dot" id="hTv"></i>TV</span>
+    <span class="chip"><i class="dot" id="hSrv"></i>Server</span>
   </div>
-  <div class="sub" id="inHelp" style="margin-top:8px"></div>
-  <div id="micBox" hidden>
-    <div class="btns" style="margin-top:10px;align-items:center">
-      <select id="micDev" aria-label="Microphone"><option value="">Default microphone</option></select>
-      <button id="bMic" class="pri">Start listening</button>
-    </div>
-    <div class="row" style="margin-top:10px"><span id="micNote">–</span><span class="sub" id="micHeard">Not listening.</span></div>
-    <div id="meter" aria-label="Sound level"><div id="meterBar"></div><div id="meterGate"></div></div>
-    <div class="btns" style="margin-top:10px;align-items:center">
-      <button id="bCheck">Check: play a C</button>
-      <span class="sub">Sensitivity</span>
-      <select id="micSens" class="bar" aria-label="Sensitivity"><option value="-0.6">Low (noisy room)</option><option value="0">Normal</option><option value="0.6">High (soft piano)</option></select>
-    </div>
-    <div class="sub" id="micCheck" style="margin-top:8px">The check listens to the room for a moment, then asks for a C to test the pitch and the delay.</div>
-    <div class="sub" id="micTip" style="margin-top:8px"></div>
-  </div>
-</div>
+</header>
 
-<div class="card">
-  <div class="lbl">Connection</div>
-  <div class="row"><span class="dot" id="dMidi"></span><span id="sMidi">Starting Web MIDI…</span></div>
-  <div class="row"><span class="dot" id="dOut"></span><span id="sOut">Sound out: waiting for Web MIDI…</span></div>
-  <div class="row"><span class="dot" id="dSrv"></span><span id="sSrv">Connecting to the server…</span></div>
-  <div class="row"><span class="dot" id="dTv"></span><span id="sTv">TV: unknown</span></div>
-  <div class="sub" id="midiHelp"></div>
-</div>
+<div class="grid">
+<div class="col">
 
-<div class="card" id="lightCard">
-  <div class="lbl">Room light</div>
-  <div class="btns" style="align-items:center">
-    <button id="bLight" role="switch" aria-checked="true">Light: on</button>
-    <select id="lightPalette" aria-label="Palette"></select>
-    <span class="sub" id="lightStatus"></span>
-  </div>
-  <div class="sub" style="margin-top:8px">The bulb follows what you play: slow colours, from a palette you choose, that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
-</div>
-
-<div class="card">
-  <div class="lbl">On the TV</div>
+<section class="card" aria-labelledby="hTvCard">
+  <h2 id="hTvCard">On the TV</h2>
   <div id="play">No TV state yet.</div>
+  <div class="set">
+    <div class="name">Song</div>
+    <div class="ctl"><select id="songs" aria-label="Song"></select></div>
+  </div>
+  <div class="set">
+    <div class="name">Screen</div>
+    <div class="ctl seg"><button id="bWall">Wall</button><button id="bPiano">Piano</button></div>
+    <div class="note ctl full" id="swStatus">On the remote, ⏪ or ⏩ also switches.</div>
+  </div>
+  <div class="set">
+    <div class="name">Open</div>
+    <div class="ctl"><button id="bLearn" title="Ten lessons from the very first step">Lessons</button><button id="bProgress">Progress</button></div>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="hPlay">
+  <h2 id="hPlay">Play</h2>
+  <div class="set">
+    <div class="name">Hands</div>
+    <div class="ctl seg"><button id="bRight" data-hand="right">Right</button><button id="bLeft" data-hand="left">Left</button><button id="bBoth" data-hand="both">Both</button></div>
+  </div>
+  <div class="set">
+    <div class="name">Mode</div>
+    <div class="ctl seg"><button id="bWait" data-tempo="off">Wait</button><button id="bTempo" data-tempo="on">Tempo</button></div>
+    <div class="note ctl full" id="tempoStatus">Wait mode waits for your keys. Tempo mode keeps time at the speed below.</div>
+  </div>
+  <div class="set">
+    <div class="name">Tempo speed</div>
+    <div class="ctl"><input type="range" id="speed" min="50" max="100" step="5" value="75" aria-label="Tempo mode speed"><span class="val" id="speedVal">75%</span></div>
+  </div>
+  <div class="set">
+    <div class="name">Hear</div>
+    <div class="ctl"><button id="bListen" class="pri">Hear it first</button><button id="bListenAll" class="pri">Hear the whole song</button></div>
+    <div class="note ctl full" id="listenStatus">Hear it first plays the bar you are on, then it is your turn.</div>
+  </div>
+  <div class="set">
+    <div class="name">Loop bars</div>
+    <div class="ctl">
+      <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
+      <button id="bLoop" class="pri">Loop</button><button id="bLoopOff">Stop loop</button>
+    </div>
+    <div class="note ctl full" id="loopStatus">A loop repeats until it is played clean 3 times in a row.</div>
+  </div>
+  <div class="set">
+    <div class="name">Playback</div>
+    <div class="ctl"><button id="bRestart">Restart</button><button id="bPause">Pause</button></div>
+  </div>
+</section>
+
+</div>
+<div class="col">
+
+<section class="card" aria-labelledby="hDisp">
+  <h2 id="hDisp">Display</h2>
+  <div class="set">
+    <div class="name">View</div>
+    <div class="ctl seg"><button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button></div>
+  </div>
+  <div class="set">
+    <div class="name">Finger numbers</div>
+    <div class="ctl"><button id="bFingers" class="tog" role="switch">On</button></div>
+  </div>
+  <div class="set">
+    <div class="name">Light effects</div>
+    <div class="ctl seg"><button data-fx="off">Off</button><button data-fx="lite">Lite</button><button data-fx="neon" title="Neon and sparks">Neon</button><button data-fx="all">All</button></div>
+    <div class="note ctl full">Glowing notes, sparks, lit keys and, with All, an aurora in the room light's colours. The TV steps down by itself when it cannot keep up.</div>
+  </div>
+  <div class="set">
+    <div class="name">Intensity</div>
+    <div class="ctl"><input type="range" id="fxInt" min="0" max="100" step="5" value="65" aria-label="Effects intensity"><span class="val" id="fxIntVal">65%</span></div>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="hIn">
+  <h2 id="hIn">Input</h2>
+  <div class="set">
+    <div class="name">Notes from</div>
+    <div class="ctl seg"><button data-input="midi">MIDI keyboard</button><button data-input="mic">Microphone</button></div>
+    <div class="note ctl full" id="inHelp"></div>
+  </div>
+  <div id="micBox" hidden>
+    <div class="set">
+      <div class="name">Microphone</div>
+      <div class="ctl"><select id="micDev" aria-label="Microphone"><option value="">Default microphone</option></select>
+      <button id="bMic" class="pri">Start listening</button></div>
+    </div>
+    <div class="set">
+      <div class="name">Hearing</div>
+      <div class="ctl"><span id="micNote">–</span><span class="sub" id="micHeard">Not listening.</span></div>
+      <div id="meter" class="ctl full" aria-label="Sound level"><div id="meterBar"></div><div id="meterGate"></div></div>
+    </div>
+    <div class="set">
+      <div class="name">Sensitivity</div>
+      <div class="ctl"><select id="micSens" class="bar" aria-label="Sensitivity"><option value="-0.6">Low (noisy room)</option><option value="0">Normal</option><option value="0.6">High (soft piano)</option></select>
+      <button id="bCheck">Check: play a C</button></div>
+      <div class="note ctl full" id="micCheck">The check listens to the room for a moment, then asks for a C to test the pitch and the delay.</div>
+      <div class="note ctl full" id="micTip"></div>
+    </div>
+  </div>
+</section>
+
+</div>
 </div>
 
-<div class="card">
-  <div class="lbl">TV screen and song</div>
-  <div class="btns">
-    <button id="bWall">Show the wall</button><button id="bPiano" class="pri">Show the piano</button>
-    <select id="songs" aria-label="Song"></select>
-  </div>
-  <div class="sub" id="swStatus" style="margin-top:8px">On the Fire TV remote, ⏪ or ⏩ also switches; ◀ ▶ pick the song while the piano is up.</div>
-</div>
+<div class="morehead">More</div>
 
-<div class="card" id="drop">
-  <div class="lbl">Song files</div>
-  <div class="btns" style="align-items:center">
-    <button id="bAdd" class="pri">Add a song file</button><input type="file" id="upload" accept=".mid,.midi,.mxl,.musicxml" hidden>
-    <span class="sub">MIDI (.mid) or MusicXML (.mxl, .musicxml), or drop it here</span>
+<details class="more" id="moreCal">
+  <summary><span class="t">Calibration</span><span class="v" id="sumCal">not calibrated</span></summary>
+  <div class="body">
+    <div class="set">
+      <div class="name">Start</div>
+      <div class="ctl"><button id="bCal" class="pri">Calibrate</button></div>
+    </div>
+    <div class="set">
+      <div class="name">Move the line</div>
+      <div class="ctl"><button data-px="-10">◀◀ 10</button><button data-px="-1">◀ 1</button><button data-px="1">1 ▶</button><button data-px="10">10 ▶▶</button><button id="bOk" class="pri">OK</button><button id="bBack">Back</button></div>
+      <div class="note ctl full">The arrows move the edge line the TV is asking about, in TV pixels (one pixel is about 0.75 mm on the 65-inch TV).</div>
+    </div>
   </div>
-  <div class="sub" id="upStatus" style="margin-top:8px">Files dropped into the songs folder on the server show up by themselves within seconds.</div>
-  <div id="files"></div>
-</div>
+</details>
 
-<div class="card">
-  <div class="lbl">Scores</div>
-  <div class="btns"><button id="bProgress">Show progress on the TV</button></div>
-  <div class="sub" id="scoreStatus" style="margin-top:8px"></div>
-</div>
+<details class="more" id="moreAids">
+  <summary><span class="t">Practice aids</span><span class="v" id="sumAids">Metronome off · Count-in on · Ramp off</span></summary>
+  <div class="body">
+    <div class="set">
+      <div class="name">Metronome</div>
+      <div class="ctl"><button id="bMetronome" class="tog" role="switch">Off</button>
+      <input type="range" id="clickVol" min="0" max="100" step="5" value="60" aria-label="Metronome volume"><span class="val" id="clickVolVal">60%</span></div>
+    </div>
+    <div class="set">
+      <div class="name">Count-in</div>
+      <div class="ctl"><button id="bCountIn" class="tog" role="switch">On</button></div>
+    </div>
+    <div class="set">
+      <div class="name">Speed ramp</div>
+      <div class="ctl"><button id="bRamp" class="tog" role="switch">Off</button><span class="sub">up to</span>
+      <input type="range" id="rampTarget" min="50" max="100" step="5" value="100" aria-label="Speed ramp target"><span class="val" id="rampTargetVal">100%</span></div>
+      <div class="note ctl full" id="rampStatus">In tempo mode the metronome clicks every beat and the count-in clicks one bar before every start. With a loop running and the ramp on, each clean pass raises the speed by 5% up to the target and a mistake holds it.</div>
+    </div>
+  </div>
+</details>
 
-<div class="card">
-  <div class="lbl">Tutorial</div>
-  <div class="btns"><button id="bLearn" class="pri">Open the lessons on the TV</button></div>
-  <div class="sub" style="margin-top:8px">Ten lessons from the very first step. On the TV remote, step ◀ or ▶ past the end of the song list.</div>
-</div>
+<details class="more" id="moreLight">
+  <summary><span class="t">Room light</span><span class="v" id="sumLight">…</span></summary>
+  <div class="body" id="lightCard">
+    <div class="set">
+      <div class="name">Bulb</div>
+      <div class="ctl"><button id="bLight" class="tog" role="switch" aria-checked="true">On</button>
+      <select id="lightPalette" aria-label="Palette"></select></div>
+      <div class="note ctl full" id="lightStatus"></div>
+    </div>
+    <div class="note">The bulb follows what you play: slow colours, from the palette you choose, that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
+  </div>
+</details>
 
-<div class="card">
-  <div class="lbl">Practice</div>
-  <div class="btns">
-    <button id="bRight" data-hand="right">Right hand</button><button id="bLeft" data-hand="left">Left hand</button><button id="bBoth" data-hand="both">Both hands</button>
+<details class="more" id="moreTel">
+  <summary><span class="t">TV speed</span><span class="v" id="sumTel">Off</span></summary>
+  <div class="body">
+    <div class="set">
+      <div class="name">Telemetry</div>
+      <div class="ctl"><button id="bTelemetry" class="tog" role="switch">Off</button></div>
+      <div class="note ctl full" id="telStatus">Off. Switch it on here, with D on a keyboard at the TV, with ▲ three times quickly on the remote, or open /piano?telemetry=1. The TV then shows fps, frame times and note-to-light delay in its bottom left corner and reports them here.</div>
+    </div>
   </div>
-  <div class="btns" style="margin-top:8px;align-items:center">
-    <button id="bWait" data-tempo="off">Wait mode</button><button id="bTempo" data-tempo="on">Tempo mode</button>
-    <input type="range" id="speed" min="50" max="100" step="5" value="75" aria-label="Tempo mode speed"><span id="speedVal">75%</span>
-  </div>
-  <div class="sub" id="tempoStatus" style="margin-top:8px">Wait mode waits for your keys. Tempo mode keeps time at the speed on the slider (50–100% of the song's tempo) after a one-bar count-in, and judges each note on time, early, late or missed. On a keyboard at the TV: T, and - / = for the speed.</div>
-  <div class="btns" style="margin-top:8px;align-items:center">
-    <button id="bMetronome">Metronome</button>
-    <input type="range" id="clickVol" min="0" max="100" step="5" value="60" aria-label="Metronome volume"><span id="clickVolVal">60%</span>
-    <button id="bCountIn">Count-in</button>
-  </div>
-  <div class="btns" style="margin-top:8px;align-items:center">
-    <button id="bRamp">Speed ramp</button><span class="sub">to</span>
-    <input type="range" id="rampTarget" min="50" max="100" step="5" value="100" aria-label="Speed ramp target"><span id="rampTargetVal">100%</span>
-  </div>
-  <div class="sub" id="rampStatus" style="margin-top:8px">In tempo mode the metronome clicks every beat (accent on the first beat of a bar) and the count-in clicks one bar before every start. With a loop running and the speed ramp on, each clean pass raises the speed by 5% up to the target and a mistake holds it. On a keyboard at the TV: K, N and U.</div>
-  <div class="btns" style="margin-top:8px">
-    <button id="bListen" class="pri">Hear it first</button><button id="bListenAll" class="pri">Hear the whole song</button><button id="bFingers">Finger numbers</button>
-  </div>
-  <div class="btns" style="margin-top:8px">
-    <button data-view="notes">Falling notes</button><button data-view="both">Both</button><button data-view="sheet">Sheet music</button>
-  </div>
-  <div class="btns" style="margin-top:8px;align-items:center">
-    <span class="sub">Light effects</span>
-    <button data-fx="off">Off</button><button data-fx="lite">Lite</button><button data-fx="neon">Neon + Sparks</button><button data-fx="all">All</button>
-    <input type="range" id="fxInt" min="0" max="100" step="5" value="65" aria-label="Effects intensity"><span id="fxIntVal">65%</span>
-  </div>
-  <div class="sub" style="margin-top:8px">Light effects on the TV: glowing falling notes, sparks, lit keys and (All) an aurora behind the notes in the room light's colours. Lite is the light one; the TV steps down by itself when it cannot keep up. On a keyboard at the TV: X cycles them.</div>
-  <div class="sub" id="listenStatus" style="margin-top:8px">Hear it first plays the bar you are on (or the whole loop) on the keyboard at the song's tempo (at the slider's speed in tempo mode), for the hand you practise; then it is your turn. On the remote: ⏪. Hear the whole song plays the entire song from the first bar to the end the same way (press ⏪ twice quickly or hold it on the remote, or W at the TV); press it again, play a key on the keyboard, or leave the song to stop.</div>
-  <div class="btns" style="margin-top:8px;align-items:center">
-    <span class="sub">Loop bars</span>
-    <select id="loopFrom" class="bar" aria-label="First bar"></select><span class="sub">to</span><select id="loopTo" class="bar" aria-label="Last bar"></select>
-    <button id="bLoop" class="pri">Loop</button><button id="bLoopOff">Stop loop</button>
-  </div>
-  <div class="sub" id="loopStatus" style="margin-top:8px">A loop repeats until it is played clean 3 times in a row. On the remote, ▲ changes the hand and ⏯ loops the bar being played (◀ ▶ then move the loop).</div>
-</div>
+</details>
 
-<div class="card">
-  <div class="lbl">Calibration and control</div>
-  <div class="btns">
-    <button id="bCal" class="pri">Calibrate</button>
-    <button data-px="-10">◀◀ 10</button><button data-px="-1">◀ 1</button>
-    <button data-px="1">1 ▶</button><button data-px="10">10 ▶▶</button>
-    <button id="bOk" class="pri">OK</button><button id="bBack">Back</button>
-    <button id="bRestart">Restart song</button><button id="bPause">Pause</button>
+<details class="more" id="moreSongs">
+  <summary><span class="t">Songs and scores</span><span class="v" id="sumSongs"></span></summary>
+  <div class="body" id="drop">
+    <div class="set">
+      <div class="name">Add a song</div>
+      <div class="ctl"><button id="bAdd" class="pri">Add a song file</button><input type="file" id="upload" accept=".mid,.midi,.mxl,.musicxml" hidden>
+      <span class="sub">MIDI (.mid) or MusicXML (.mxl, .musicxml), or drop it here</span></div>
+      <div class="note ctl full" id="upStatus">Files dropped into the songs folder on the server show up by themselves within seconds.</div>
+    </div>
+    <div class="set">
+      <div class="name">Scores</div>
+      <div class="note ctl full" id="scoreStatus" style="margin:0"></div>
+    </div>
+    <div id="files"></div>
   </div>
-  <div class="sub" style="margin-top:8px">The arrows move the edge line the TV is asking about, in TV pixels (one pixel is about 0.75 mm on the 65-inch TV).</div>
-</div>
+</details>
 
-<div class="card">
-  <div class="lbl">Test input (no keyboard needed)</div>
-  <div class="btns">
-    <button id="bNext">Play the next note</button><button id="bWrong">Play a wrong note</button>
+<details class="more" id="moreConn">
+  <summary><span class="t">Connection</span><span class="v" id="sumConn"></span></summary>
+  <div class="body">
+    <div class="row"><span class="dot" id="dMidi"></span><span id="sMidi">Starting Web MIDI…</span></div>
+    <div class="row"><span class="dot" id="dOut"></span><span id="sOut">Sound out: waiting for Web MIDI…</span></div>
+    <div class="row"><span class="dot" id="dSrv"></span><span id="sSrv">Connecting to the server…</span></div>
+    <div class="row"><span class="dot" id="dTv"></span><span id="sTv">TV: unknown</span></div>
+    <div class="note" id="midiHelp"></div>
   </div>
-  <div id="kb"></div>
-  <div class="sub">Click the keys, or type A W S E D F T G Y H U J K (C4–C5); Z and X shift the octave.</div>
-</div>
+</details>
 
-<div class="card">
-  <div class="lbl">TV speed (telemetry)</div>
-  <div class="btns"><button id="bTelemetry">Telemetry: off</button></div>
-  <div class="sub" id="telStatus" style="margin-top:8px">Off. Switch it on here, with D on a keyboard at the TV, with ▲ three times quickly on the remote, or open /piano?telemetry=1. The TV then shows fps, frame times and note-to-light delay in its bottom left corner and reports them here.</div>
-</div>
+<details class="more" id="moreKeys">
+  <summary><span class="t">Remote and keyboard keys</span><span class="v">for the TV</span></summary>
+  <div class="body">
+    <div class="keys">
+      <b>◀ ▶</b><span>Pick the song while the piano is up; past the end of the list they open the lessons. With a loop, they move it.</span>
+      <b>▲</b><span>Changes the hand.</span>
+      <b>⏯</b><span>Loops the bar being played.</span>
+      <b>⏪</b><span>Hear it first. Press it twice quickly, or hold it, to hear the whole song; press again to stop.</span>
+      <b>⏩</b><span>Switches between the piano and the wall.</span>
+      <b>Keyboard</b><span>T tempo mode · - and = speed · K metronome · N count-in · U speed ramp · X light effects · D TV speed readout · W whole song · B room light · O palette.</span>
+    </div>
+  </div>
+</details>
 
-<div class="card"><div class="lbl">Recent notes</div><div id="log"></div></div>
+<details class="more" id="moreTest">
+  <summary><span class="t">Test tools</span><span class="v">no keyboard needed</span></summary>
+  <div class="body">
+    <div class="btns"><button id="bNext">Play the next note</button><button id="bWrong">Play a wrong note</button></div>
+    <div id="kb"></div>
+    <div class="note">Click the keys, or type A W S E D F T G Y H U J K (C4–C5); Z and X shift the octave.</div>
+    <div class="lbl" style="margin-top:1rem">Recent notes</div>
+    <div id="log"></div>
+  </div>
+</details>
 
 <script src="/piano-core.js"></script>
 <script src="/pitch.js"></script>
@@ -215,7 +348,21 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   var tvState = null, logLines = [];
   var echo = P.echoFilter(150);
 
-  function dot(id, cls) { $(id).className = "dot " + (cls || ""); }
+  // The header chips (Keyboard, TV, Server) follow the connection dots, so a problem shows without opening Connection.
+  function dot(id, cls) {
+    $(id).className = "dot " + (cls || "");
+    var chip = $("h" + id.slice(1));
+    if (chip) chip.className = "dot " + (cls || "");
+    connSummary();
+  }
+  function connSummary() {
+    var bad = ["dMidi", "dOut", "dSrv", "dTv"].filter(function (d) { return /bad|warn/.test($(d).className); }).length;
+    $("sumConn").textContent = bad ? bad + (bad === 1 ? " thing needs a look" : " things need a look") : "all fine";
+  }
+
+  // A choice that is on shows filled; a switch also says On or Off in words.
+  function mark(b, on) { b.className = on ? "sel" : ""; b.setAttribute("aria-pressed", on ? "true" : "false"); }
+  function toggle(b, on) { b.className = "tog" + (on ? " sel" : ""); b.textContent = on ? "On" : "Off"; b.setAttribute("aria-checked", on ? "true" : "false"); }
 
   // ---------- relay ----------
 
@@ -257,6 +404,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     songList = all.filter(function (s) { return !s.error; });
     $("songs").innerHTML = songList.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title || s.id) + esc(scoreText(s.score)) + "</option>"; }).join("");
     markSong();
+    $("sumSongs").textContent = songList.length + (songList.length === 1 ? " song" : " songs");
     renderFiles(all);
     renderScores();
   }
@@ -340,9 +488,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   var lightOn = true, lightPalettes = "";
   function showLight(l) {
     lightOn = l.enabled;
-    $("bLight").textContent = "Light: " + (l.enabled ? "on" : "off");
-    $("bLight").setAttribute("aria-checked", l.enabled);
-    $("bLight").className = l.enabled ? "pri" : "";
+    toggle($("bLight"), l.enabled);
     $("bLight").disabled = l.status === "no-bulb";
     if (l.palettes && lightPalettes !== l.palettes.join()) {
       lightPalettes = l.palettes.join();
@@ -350,6 +496,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
     }
     if (l.palette) $("lightPalette").value = l.palette;
     $("lightPalette").disabled = l.status === "no-bulb";
+    $("sumLight").textContent = l.status === "no-bulb" ? "no bulb set up" : l.enabled ? "On" + (l.palette ? " · " + l.palette.charAt(0).toUpperCase() + l.palette.slice(1) : "") : "Off";
     $("lightStatus").textContent = l.status === "no-bulb" ? "No bulb configured: add a bulb host to config.json" : !l.enabled ? "Off, the bulb is left as it was" : { searching: "Looking for the bulb…", "not-found": "Bulb not found (retrying quietly)", ready: "Bulb found, waiting for you to play", active: "Following your playing" }[l.status] || "";
   }
   $("lightPalette").onchange = function () {
@@ -374,6 +521,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       var p = JSON.parse(m.data);
       dot("dTv", p.tv ? "ok" : "warn");
       if (!p.tv) stopAuto();   // nobody is left to say when the other hand's notes end
+      mark($("bPiano"), !!p.tv); mark($("bWall"), !p.tv && !!p.wall);
       $("sTv").textContent = p.tv ? "TV page open (" + p.tv + ")" : p.wall ? "TV is showing the wall: press Show the piano" : "No TV page open: open /piano on the TV";
     });
     es.addEventListener("light", function (m) { showLight(JSON.parse(m.data)); });
@@ -438,7 +586,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   var shownBars = 0, shownLoop = "";
   function renderPractice(s) {
     Array.prototype.forEach.call(document.querySelectorAll("[data-hand]"), function (b) {
-      b.className = b.dataset.hand === s.hand ? "sel" : "";
+      mark(b, b.dataset.hand === s.hand);
       b.disabled = b.dataset.hand !== "both" && s.songHands && s.songHands.length < 2;
     });
     if (s.bars && s.bars !== shownBars) {
@@ -454,35 +602,36 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
       if (s.loop) { $("loopFrom").value = s.loop.from; $("loopTo").value = s.loop.to; }
     }
     $("bLoopOff").disabled = !s.loop;
-    $("bProgress").textContent = s.progress ? "Close progress on the TV" : "Show progress on the TV";
-    $("bLearn").textContent = s.learn ? "Close the lessons on the TV" : "Open the lessons on the TV";
+    $("bProgress").textContent = s.progress ? "Close progress" : "Progress";
+    $("bLearn").textContent = s.learn ? "Close lessons" : "Lessons";
+    mark($("bProgress"), !!s.progress); mark($("bLearn"), !!s.learn);
     $("bListen").textContent = s.listening ? "Stop listening" : "Hear it first";
     $("bListen").className = s.listening ? "sel" : "pri";
+    $("bListen").setAttribute("aria-pressed", s.listening ? "true" : "false");
     if (s.listeningAll) clearTimeout(askTimer);
     // What the TV says about the whole song (could not start, no sound, lost) shows once per message.
     if ((s.wholeNote || "") !== shownWholeNote) { shownWholeNote = s.wholeNote || ""; if (shownWholeNote) $("listenStatus").textContent = shownWholeNote; }
     $("bListenAll").textContent = s.listeningAll ? "Stop the song" : "Hear the whole song";
     $("bListenAll").className = s.listeningAll ? "sel" : "pri";
+    $("bListenAll").setAttribute("aria-pressed", s.listeningAll ? "true" : "false");
     Array.prototype.forEach.call(document.querySelectorAll("[data-tempo]"), function (b) {
-      b.className = (b.dataset.tempo === "on") === !!s.tempo ? "sel" : "";
+      mark(b, (b.dataset.tempo === "on") === !!s.tempo);
     });
     // The slider follows the TV unless it is being dragged.
     if (s.speed && !dragging) { $("speed").value = s.speed; $("speedVal").textContent = s.speed + "%"; }
-    $("bFingers").textContent = s.fingers === false ? "Finger numbers: hidden" : "Finger numbers: shown";
-    $("bFingers").className = s.fingers === false ? "" : "sel";
-    $("bMetronome").textContent = s.metronome ? "Metronome: on" : "Metronome: off";
-    $("bMetronome").className = s.metronome ? "sel" : "";
-    $("bCountIn").textContent = s.countInOn ? "Count-in: on" : "Count-in: off";
-    $("bCountIn").className = s.countInOn ? "sel" : "";
-    $("bRamp").textContent = s.ramp ? "Speed ramp: on" : "Speed ramp: off";
-    $("bRamp").className = s.ramp ? "sel" : "";
+    toggle($("bFingers"), s.fingers !== false);
+    toggle($("bMetronome"), !!s.metronome);
+    toggle($("bCountIn"), !!s.countInOn);
+    toggle($("bRamp"), !!s.ramp);
+    toggle($("bTelemetry"), !!s.telemetry);
+    $("sumTel").textContent = s.telemetry ? "On" : "Off";
+    $("sumAids").textContent = "Metronome " + (s.metronome ? "on" : "off") + " · Count-in " + (s.countInOn ? "on" : "off") + " · Ramp " + (s.ramp ? "on" : "off");
+    $("sumCal").textContent = s.calibration ? "keys " + P.noteName(s.calibration.low) + "–" + P.noteName(s.calibration.high) : "not calibrated";
     if (typeof s.clickVolume === "number" && !clickDragging) { $("clickVol").value = s.clickVolume; $("clickVolVal").textContent = s.clickVolume + "%"; }
     if (s.rampTarget && !rampDragging) { $("rampTarget").value = s.rampTarget; $("rampTargetVal").textContent = s.rampTarget + "%"; }
     $("rampStatus").textContent = s.ramp && s.loop && s.tempo ? "Ramp: " + s.rampSpeed + "% \u2192 " + s.rampTarget + "%" : rampStatusText;
-    $("bTelemetry").textContent = s.telemetry ? "Telemetry: on" : "Telemetry: off";
-    $("bTelemetry").className = s.telemetry ? "sel" : "";
-    Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { b.className = b.dataset.view === s.view ? "sel" : ""; });
-    Array.prototype.forEach.call(document.querySelectorAll("[data-fx]"), function (b) { b.className = b.dataset.fx === s.fx ? "sel" : ""; });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) { mark(b, b.dataset.view === s.view); });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fx]"), function (b) { mark(b, b.dataset.fx === s.fx); });
     if (typeof s.fxIntensity === "number" && !fxDragging) { $("fxInt").value = s.fxIntensity; $("fxIntVal").textContent = s.fxIntensity + "%"; }
     if (!s.listening && listenShown) $("listenStatus").textContent = "Your turn: the TV is waiting for your keys again.";
     listenShown = !!s.listening;
@@ -571,7 +720,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
 
   function setInput(v) {
     input = v; remember("pianoInput", v);
-    Array.prototype.forEach.call(document.querySelectorAll("[data-input]"), function (b) { b.className = b.dataset.input === input ? "sel" : ""; });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-input]"), function (b) { mark(b, b.dataset.input === input); });
     $("micBox").hidden = input !== "mic";
     if (input === "midi") {
       stopMic();
@@ -987,6 +1136,85 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--blue)}
   // Keep the screen awake while this page relays notes (a phone on the music rest would sleep).
   function wake() { if (navigator.wakeLock && document.visibilityState === "visible") navigator.wakeLock.request("screen").catch(function () {}); }
   document.addEventListener("visibilitychange", wake);
+
+  // ---------- remote and keyboard navigation ----------
+
+  // The page works from the TV remote: arrows move to the nearest control in that direction, OK presses
+  // (Enter; a list opens), and Back closes the group you are in, then goes back to the top. A slider
+  // keeps ◀ ▶ for its value until it is at its end. Tab, the mouse and touch work as before.
+  var FOCUSABLE = "button:not(:disabled), select:not(:disabled), input[type=range]:not(:disabled), summary";
+  function focusables() {
+    return Array.prototype.filter.call(document.querySelectorAll(FOCUSABLE), function (el) {
+      // The inside of a folded group still has boxes, but nothing in it can be reached.
+      var d = el.closest("details");
+      if (d && !d.open && !(el.tagName === "SUMMARY" && el.parentNode === d)) return false;
+      return el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
+    });
+  }
+  function nearest(from, key) {
+    // From a wide control (a folded group's heading) every control in the next row is in reach and the
+    // leftmost wins; from a small one the nearest row wins, then the nearest control in it.
+    var a = from.getBoundingClientRect(), wide = a.width > innerWidth * 0.4, ax = a.left + a.width / 2, ay = a.top + a.height / 2, best = null, bestScore = Infinity;
+    focusables().forEach(function (el) {
+      if (el === from) return;
+      var r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2, dx = x - ax, dy = y - ay, score;
+      if (key === "ArrowDown" || key === "ArrowUp") {
+        var d = key === "ArrowDown" ? r.top - a.bottom + a.height / 2 : a.top - r.bottom + a.height / 2;
+        if (d < 0 || (key === "ArrowDown" ? y <= ay : y >= ay) || Math.abs(dy) < a.height / 2) return;
+        score = Math.abs(dy) + (wide ? r.left * 0.01 : (ax < r.left ? r.left - ax : ax > r.right ? ax - r.right : 0) * 0.35);
+      } else {
+        // Left and right stay in the same row of controls.
+        if (Math.abs(dy) > Math.max(a.height, r.height) / 2 || (key === "ArrowRight" ? dx <= 0 : dx >= 0)) return;
+        score = Math.abs(dx);
+      }
+      if (score < bestScore) { bestScore = score; best = el; }
+    });
+    return best;
+  }
+  function focusEl(el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: "center", behavior: "auto" }); }
+
+  var BACK = { Escape: 1, GoBack: 1, BrowserBack: 1, XF86Back: 1 };
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    var el = document.activeElement, tag = el && el.tagName, k = e.key;
+    if (BACK[k] || e.keyCode === 461 || e.keyCode === 10009) {
+      var open = el && el.closest && el.closest("details[open]");
+      if (open) { open.open = false; focusEl(open.querySelector("summary")); e.preventDefault(); }
+      else if (window.scrollY > 0) { var first = focusables()[0]; if (first) focusEl(first); window.scrollTo(0, 0); e.preventDefault(); }
+      return;
+    }
+    if (k === "Enter" && tag === "SELECT" && el.showPicker) { try { el.showPicker(); e.preventDefault(); } catch (err) {} return; }
+    if (k !== "ArrowUp" && k !== "ArrowDown" && k !== "ArrowLeft" && k !== "ArrowRight") return;
+    if (!el || el === document.body || el === document.documentElement) {
+      var f = focusables()[0]; if (f) { focusEl(f); e.preventDefault(); }
+      return;
+    }
+    if (!el.matches(FOCUSABLE)) return;
+    if (tag === "INPUT" && (k === "ArrowLeft" || k === "ArrowRight")) {
+      var v = Number(el.value), atEnd = k === "ArrowLeft" ? v <= Number(el.min) : v >= Number(el.max);
+      if (!atEnd) return;
+    }
+    if (tag === "SUMMARY" && (k === "ArrowRight" || k === "ArrowLeft")) {
+      var d = el.parentNode;
+      if (k === "ArrowRight" && !d.open) { d.open = true; e.preventDefault(); return; }
+      if (k === "ArrowLeft" && d.open) { d.open = false; e.preventDefault(); return; }
+    }
+    var next = nearest(el, k);
+    if (next) { focusEl(next); e.preventDefault(); }
+    else if (tag === "SELECT" || tag === "INPUT") e.preventDefault();
+  });
+
+  // The folded groups stay as they were left.
+  var OPEN_KEY = "pianoLinkOpen";
+  (function () {
+    var was = remembered(OPEN_KEY).split(",");
+    Array.prototype.forEach.call(document.querySelectorAll("details.more"), function (d) {
+      if (was.indexOf(d.id) >= 0) d.open = true;
+      d.addEventListener("toggle", function () {
+        remember(OPEN_KEY, Array.prototype.filter.call(document.querySelectorAll("details.more[open]"), function (x) { return x; }).map(function (x) { return x.id; }).join(","));
+      });
+    });
+  })();
 
   buildKeyboard();
   loadSongs();
