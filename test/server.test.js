@@ -74,7 +74,7 @@ async function waitForServer() {
   const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), "piano-config-"));
   fs.writeFileSync(path.join(cfgDir, "config.json"), JSON.stringify({ bulb: { host: "127.0.0.1", port: fakeBulb.address().port } }));
   const child = spawn(process.execPath, [path.join(ROOT, "server.js")], {
-    env: { ...process.env, PIANO_PORT: String(port), PIANO_SONGS_DIR: dir, PIANO_CAL: path.join(dir, "cal.json"), PIANO_CONFIG: path.join(cfgDir, "config.json"), PIANO_WALL_URL: "http://{host}:4410/" },
+    env: { ...process.env, PIANO_PORT: String(port), PIANO_SONGS_DIR: dir, PIANO_CAL: path.join(dir, "cal.json"), PIANO_CONFIG: path.join(cfgDir, "config.json"), PIANO_WALL_URL: "http://{host}:4410/", PIANO_APPS_URL: "http://{host}:4400/" },
     stdio: "ignore",
   });
   try {
@@ -96,7 +96,7 @@ async function waitForServer() {
     assert.strictEqual((await request("GET", "/server.js")).status, 404, "only the pages and scripts are served");
 
     r = await request("GET", "/api/config");
-    assert.deepStrictEqual(r.data, { wallUrl: "http://{host}:4410/" });
+    assert.deepStrictEqual(r.data, { wallUrl: "http://{host}:4410/", appsUrl: "http://{host}:4400/" });
 
     r = await request("GET", "/api/piano/songs");
     assert.deepStrictEqual(r.data.songs.map((s) => s.id), ["ode-to-joy"]);

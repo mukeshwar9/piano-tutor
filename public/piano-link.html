@@ -21,6 +21,7 @@ body{max-width:58rem;margin:0 auto;padding:1rem;display:flex;flex-direction:colu
 @media (min-width:1500px){body{max-width:80rem;padding:1.2rem 1.5rem}}
 
 header{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4rem 1.2rem}
+#appsLink{color:var(--txt2);font-size:.85rem;margin-left:auto}
 h1{font-size:1.5rem;font-weight:800;margin-right:auto}
 h1 small{font-size:.9rem;font-weight:500;color:var(--mut);margin-left:.5rem}
 .chips{display:flex;gap:.4rem;flex-wrap:wrap}
@@ -106,6 +107,7 @@ details.more>.body{padding:0 1.1rem 1rem}
 <body>
 <header>
   <h1>Piano link <small>keyboard → TV</small></h1>
+  <a id="appsLink" href="#" hidden>All apps</a>
   <div class="chips" aria-label="Connection">
     <span class="chip"><i class="dot" id="hMidi"></i>Keyboard</span>
     <span class="chip"><i class="dot" id="hTv"></i>TV</span>
@@ -1219,6 +1221,13 @@ details.more>.body{padding:0 1.1rem 1rem}
   buildKeyboard();
   loadSongs();
   connect();
+  fetch("/api/config").then(function (r) { return r.json(); }).then(function (c) {
+    var url = c && typeof c.appsUrl === "string" ? c.appsUrl.trim() : "";
+    if (!/^https?:\/\//i.test(url)) return;
+    var a = $("appsLink");
+    a.href = url.replace(/\{host\}/g, location.hostname);
+    a.hidden = false;
+  }).catch(function () {});
   fetch("/api/piano/telemetry").then(function (r) { return r.json(); }).then(showTelemetry).catch(function () {});
   startMidi();
   setInput(input);
