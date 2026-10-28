@@ -1,5 +1,6 @@
 {
   "port": 4420,
   "wallUrl": "",
+  "appsUrl": "",
   "bulb": { "host": "192.0.2.10", "enabled": true }
 }

@@ -50,6 +50,7 @@ Logs go to `~/Library/Logs/piano-tutor.log`. Restart after config changes with `
 
 - `port` / `PIANO_PORT`: the port (default 4420).
 - `wallUrl` / `PIANO_WALL_URL`: another page the TV can switch to with Fast-Forward, such as a dashboard served elsewhere, for example `http://{host}:4410/`. `{host}` stands for the host the TV loaded the piano page from. Empty (the default): no other page, and Fast-Forward only shows a note. See Switching pages.
+- `appsUrl` / `PIANO_APPS_URL`: the address of a hub page listing your other apps. The link page shows an "All apps" link to it in its header; `{host}` stands for the host the link page was loaded from. Empty or unset (the default): no link is shown.
 - `bulb` (`config.json` only): `{ "host": "192.0.2.10", "enabled": true }`, the address of a WiZ colour bulb on the same network (see Room light). Without a host the light does nothing.
 - `PIANO_SONGS_DIR`: the songs folder (default `songs/`). `PIANO_LESSONS_DIR`: the tutorial lessons folder (default `lessons/`).
 - `PIANO_CAL`: the calibration file (default `piano-calibration.json`); `PIANO_HISTORY`: the score history (default `piano-history.json` next to the calibration). `PIANO_LIGHT`: the room light switch (default `piano-light.json`, same place). `PIANO_PROGRESS`: the tutorial progress (default `piano-progress.json`, same place). None of them is in git.
