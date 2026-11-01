@@ -1786,18 +1786,13 @@ body.tutor #toast{z-index:5}
         if (isCur && want[nt.note] !== "hit") { ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
         if (nt.shifted) { ctx.strokeStyle = "#a78bfa"; ctx.lineWidth = 2 * DPR; ctx.stroke(); }
         if (fxOn && mine) { fx.barCore(key, top, bottom, fxTone, fxPlay); ctx.globalAlpha = mine ? 1 : 0.22; }
-        // Finger number at the bottom of the note's visible part, where it meets the key.
-        var fs = Math.min((key.x1 - key.x0) * 0.8, 30 * DPR), seen = Math.min(bottom, hitY);
-        if (fingersShown() && nt.finger && seen - top - 2 * gap > fs * 1.2) {
-          fingerText(nt.finger, (key.x0 + key.x1) / 2, seen - gap - fs * 0.65, fs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
-        }
-        // Note name at the top of the tile's visible part. It is hidden rather than overlapping the
-        // finger number on short tiles, and when the tile is too narrow to read it.
-        var nm = P.noteName(nt.note), nfs = Math.min((key.x1 - key.x0) * 0.8 / (nm.length * 0.62), 24 * DPR);
-        var nTop = Math.max(top, areaTop), fingerRoom = fingersShown() && nt.finger ? fs * 1.2 : 0;
-        if (nfs >= 9 * DPR && seen - nTop - 2 * gap > nfs * 1.2 + fingerRoom) {
-          fingerText(nm, (key.x0 + key.x1) / 2, nTop + gap + nfs * 0.65, nfs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
-        }
+        // Note name at the top and finger number at the bottom of the tile's visible part. Both are
+        // always drawn; on short or narrow tiles they shrink to fit rather than being dropped.
+        var seen = Math.min(bottom, hitY), hasF = !!(fingersShown() && nt.finger);
+        var lab = P.tileLabels({ width: key.x1 - key.x0, nameLength: P.noteName(nt.note).length, top: Math.max(top, areaTop), bottom: seen, gap: gap, hasFinger: hasF, dpr: DPR });
+        var ink = col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d", cxm = (key.x0 + key.x1) / 2;
+        fingerText(P.noteName(nt.note), cxm, lab.nameY, lab.nameSize, ink);
+        if (hasF) fingerText(nt.finger, cxm, lab.fingerY, lab.fingerSize, ink);
         ctx.globalAlpha = 1;
       }
       ctx.restore();

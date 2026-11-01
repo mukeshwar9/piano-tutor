@@ -23,6 +23,23 @@
 
   function isBlack(n) { return BLACK[((n % 12) + 12) % 12]; }
 
+  // Shrink-to-fit text sizes for a falling tile: note name at the top, finger number at the bottom of
+  // the visible part (top..bottom). Both are always drawn; on short tiles they shrink together so the
+  // 1.2-line-height boxes never overlap. Returns centres and sizes in the caller's pixel units.
+  function tileLabels(o) {
+    var dpr = o.dpr || 1, gap = o.gap || 0, w = o.width;
+    var nameSize = Math.min(w * 0.8 / (Math.max(1, o.nameLength) * 0.62), 24 * dpr);
+    var fingerSize = o.hasFinger ? Math.min(w * 0.8, 30 * dpr) : 0;
+    var avail = Math.max(2, o.bottom - o.top - 2 * gap), need = 1.2 * (nameSize + fingerSize);
+    if (need > avail) { var k = avail / need; nameSize *= k; fingerSize *= k; }
+    nameSize = Math.max(1, nameSize);
+    if (o.hasFinger) fingerSize = Math.max(1, fingerSize);
+    return {
+      nameSize: nameSize, nameY: o.top + gap + nameSize * 0.6,
+      fingerSize: fingerSize, fingerY: o.hasFinger ? o.bottom - gap - fingerSize * 0.6 : 0
+    };
+  }
+
   function noteName(n) { return NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1); }
 
   // "C4" / "F#3" / "Bb2" to a MIDI number (C4 = 60). Returns NaN for anything else.
@@ -999,7 +1016,7 @@
     timingSummary: timingSummary, validTiming: validTiming, timingText: timingText, tendencyText: tendencyText, TENDENCY_MS: TENDENCY_MS,
     summarizeHistory: summarizeHistory, durationText: durationText, percentText: percentText,
     DEFAULT_LOW: DEFAULT_LOW, DEFAULT_HIGH: DEFAULT_HIGH, SCREEN_MM: SCREEN_MM,
-    isBlack: isBlack, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
+    isBlack: isBlack, tileLabels: tileLabels, noteName: noteName, parseNote: parseNote, keyUnits: keyUnits, whiteCount: whiteCount,
     keyLayout: keyLayout, keyAt: keyAt, rulerEdges: rulerEdges, seatScale: seatScale,
     scaleCalibration: scaleCalibration, defaultCalibration: defaultCalibration, validCalibration: validCalibration,
     handName: handName, isFinger: isFinger, normalizeSong: normalizeSong, fitSong: fitSong, buildSteps: buildSteps,

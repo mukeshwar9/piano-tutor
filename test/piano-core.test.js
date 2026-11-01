@@ -507,4 +507,12 @@ assert.strictEqual(micRight.press(64).result, "advance");
 const strict = P.createSession(odeSong, { hand: "right" });
 assert.strictEqual(strict.press(76).result, "wrong");
 
+// Tile labels: the note name and finger number always fit without overlapping, on long, short and narrow tiles.
+[{ width: 60, top: 0, bottom: 400 }, { width: 60, top: 0, bottom: 30 }, { width: 14, top: 0, bottom: 200 }, { width: 14, top: 0, bottom: 12 }].forEach(function (t) {
+  const l = P.tileLabels({ width: t.width, nameLength: 3, top: t.top, bottom: t.bottom, gap: 2, hasFinger: true, dpr: 1 });
+  assert.ok(l.nameSize > 0 && l.fingerSize > 0, "both labels drawn at " + JSON.stringify(t));
+  assert.ok(l.nameY + l.nameSize * 0.6 <= l.fingerY - l.fingerSize * 0.6 + 1e-9, "name above finger, no overlap at " + JSON.stringify(t));
+});
+assert.ok(P.tileLabels({ width: 14, nameLength: 3, top: 0, bottom: 20, gap: 2, hasFinger: false, dpr: 1 }).nameSize > 0, "name without a finger");
+
 console.log("ok");
