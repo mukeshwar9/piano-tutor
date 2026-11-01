@@ -25,6 +25,8 @@ function loadConfig() {
     port: Number(process.env.PIANO_PORT || file.port || 4420),
     // The wall page Fast-Forward goes back to ("{host}" is the TV page's own host); empty: no wall.
     wallUrl: String(process.env.PIANO_WALL_URL != null ? process.env.PIANO_WALL_URL : file.wallUrl || ""),
+    // The "All apps" hub link on the link page: from the environment or config.json only; unset hides it.
+    appsUrl: String(process.env.PIANO_APPS_URL != null ? process.env.PIANO_APPS_URL : file.appsUrl || ""),
     songsDir: process.env.PIANO_SONGS_DIR || path.join(ROOT, "songs"),
     pianoCalibration: calibration,
     pianoHistory: process.env.PIANO_HISTORY || path.join(path.dirname(calibration), "piano-history.json"),
@@ -374,7 +376,7 @@ const server = http.createServer(async (req, res) => {
     if (url === "/api/piano/events") return pianoEvents(req, res, new URLSearchParams(qs));
     if (url === "/api/piano/upload" && req.method === "POST") return await uploadPost(req, res, new URLSearchParams(qs));
     if (url.startsWith("/api/piano/")) return req.method === "POST" ? await pianoPost(url, req, res) : pianoGet(url, qs, res);
-    if (url === "/api/config") return json(res, 200, { wallUrl: config.wallUrl });
+    if (url === "/api/config") return json(res, 200, { wallUrl: config.wallUrl, appsUrl: config.appsUrl });
     if (url === "/api/debug") {
       console.log(`[viewport] ${new Date().toISOString()} ${req.socket.remoteAddress} ${(req.url.split("?")[1] || "").replace(/&t=\d+$/, "")}`);
       res.writeHead(204, { "Cache-Control": "no-store" });
