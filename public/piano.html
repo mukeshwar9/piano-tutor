@@ -1791,6 +1791,13 @@ body.tutor #toast{z-index:5}
         if (fingersShown() && nt.finger && seen - top - 2 * gap > fs * 1.2) {
           fingerText(nt.finger, (key.x0 + key.x1) / 2, seen - gap - fs * 0.65, fs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
         }
+        // Note name at the top of the tile's visible part. It is hidden rather than overlapping the
+        // finger number on short tiles, and when the tile is too narrow to read it.
+        var nm = P.noteName(nt.note), nfs = Math.min((key.x1 - key.x0) * 0.8 / (nm.length * 0.62), 24 * DPR);
+        var nTop = Math.max(top, areaTop), fingerRoom = fingersShown() && nt.finger ? fs * 1.2 : 0;
+        if (nfs >= 9 * DPR && seen - nTop - 2 * gap > nfs * 1.2 + fingerRoom) {
+          fingerText(nm, (key.x0 + key.x1) / 2, nTop + gap + nfs * 0.65, nfs, col === "#2b7a52" || col === "#7a2b35" ? "#d8f5e6" : "#07101d");
+        }
         ctx.globalAlpha = 1;
       }
       ctx.restore();

@@ -15,6 +15,8 @@ assert.strictEqual(P.parseNote("Bb2"), 46);
 assert(Number.isNaN(P.parseNote("H2")));
 assert.strictEqual(P.noteName(36), "C2");
 assert.strictEqual(P.noteName(96), "C7");
+assert.strictEqual(P.noteName(60), "C4");
+assert.strictEqual(P.noteName(61), "C#4");
 assert.strictEqual(P.whiteCount(36, 96), 36);
 
 // Layout: 61 keys C2-C7 spread linearly between the two calibrated edges.
