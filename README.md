@@ -87,13 +87,23 @@ On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; let
 - ◀ ▶: previous / next song (while a practice loop runs: move the loop by a bar).
 - ▲ (or H): cycle right hand / left hand / both hands. ▲ three times within about a second also switches the telemetry readout (see Telemetry); the three presses cycle the hand all the way round, so it ends as it was.
 - ▼ (or C): calibrate.
-- OK: pause, or replay a finished song. R restarts.
+- OK: opens the pause sheet (see below), or acts on the results card's focused button after a finish. Back puts the card away or resumes from the sheet. R restarts.
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first. Press Rewind twice within half a second, or hold it, or press W, to hear the whole song instead.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
 - E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: the telemetry readout (fps, frame times, effects level, note-to-light delay). V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
+
+## Score, stars and the daily goal
+
+Every note struck right scores 100 times a combo multiplier (x1, then x2 at 10 notes in a row, x3 at 25, x4 at 50); in tempo mode it is also scaled by timing, full inside 110 ms of the beat and falling to half at the edge of the 300 ms window. A wrong key or a missed note only starts the combo again. The score has no ceiling. A whole-song play earns 1, 2 or 3 stars at 70, 85 and 95 percent accuracy (95 is also the Mastered line). The results card shows the stars, the score counting up, a New best badge when the score beats the song's best, and the day's goal. Each song keeps its best score and best stars (shown under its title and on the progress screen); loops are saved but do not score.
+
+The daily goal is 10 minutes of any playing a day (whole songs, loops and practice; one play counts for at most 30 minutes) and the day streak is the days in a row with any play at all, kept through a day not yet played. Both are worked out from `piano-history.json` in the server's local days (`GET /api/piano/today`, and in the reply to each finished play), so nothing else is stored. The song view shows the goal bar and the streak; the progress screen adds the longest run, minutes this week, the mastered count and a four-week calendar.
+
+## The pause sheet
+
+The LG remote has no Play-Pause, Rewind or Fast-Forward keys, so OK in the song view opens a pause sheet with what those keys do: Resume, Practise this bar (or Stop looping), Hear this bar, Hand (◀ ▶ change it) and Restart. ▲ ▼ move the focus, OK chooses, Back resumes. The song is paused behind it and keys played on the keyboard are ignored until it closes.
 
 ## Practising
 

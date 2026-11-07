@@ -1112,6 +1112,42 @@
   var HANDS = ["right", "left", "both"];
   function nextHand(hand) { return HANDS[(HANDS.indexOf(hand) + 1) % HANDS.length]; }
 
+  // ---------- remote focus ----------
+
+  // One focused control at a time, moved with the remote's arrows. items are { id, col, row, skip? } placed
+  // on a grid (a menu is one column; the song picker is a filter column beside a column of rows); dir is
+  // "up", "down", "left" or "right". The nearest item that way wins (fewest rows or columns away, then the
+  // smallest sideways step, then the earlier one), and a skipped item (locked, hidden) is passed over.
+  // There is no wrap-around: at the edge the focus stays and edge is true, so the page can nudge instead.
+  // Returns { id, edge }.
+  function focusMove(items, curId, dir) {
+    var cur = null, i;
+    for (i = 0; i < items.length; i++) if (items[i].id === curId) cur = items[i];
+    if (!cur) {
+      for (i = 0; i < items.length; i++) if (!items[i].skip) return { id: items[i].id, edge: false };
+      return { id: curId, edge: true };
+    }
+    var best = null, bestMain = 0, bestCross = 0;
+    for (i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it === cur || it.skip) continue;
+      var dc = it.col - cur.col, dr = it.row - cur.row, main, cross;
+      if (dir === "up") { main = -dr; cross = Math.abs(dc); }
+      else if (dir === "down") { main = dr; cross = Math.abs(dc); }
+      else if (dir === "left") { main = -dc; cross = Math.abs(dr); }
+      else if (dir === "right") { main = dc; cross = Math.abs(dr); }
+      else return { id: curId, edge: true };
+      if (!(main > 0)) continue;
+      if (!best || main < bestMain || (main === bestMain && cross < bestCross)) { best = it; bestMain = main; bestCross = cross; }
+    }
+    return best ? { id: best.id, edge: false } : { id: curId, edge: true };
+  }
+
+  // The remote's key name to a focus direction ("" for any other key).
+  function focusDir(key) {
+    return { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" }[key] || "";
+  }
+
   // The song to pick when the remote steps dir (+1 / -1) from current: songs with errors are skipped
   // and the list wraps. Returns "" when nothing is playable.
   function stepSong(songs, currentId, dir) {
@@ -1124,7 +1160,7 @@
   }
 
   return {
-    stepSong: stepSong, levelOf: levelOf,
+    stepSong: stepSong, levelOf: levelOf, focusMove: focusMove, focusDir: focusDir,
     DAILY_GOAL_MIN: DAILY_GOAL_MIN, PLAY_CAP_MS: PLAY_CAP_MS, dayKey: dayKey, shiftDay: shiftDay, dayStats: dayStats,
     NOTE_POINTS: NOTE_POINTS, COMBO_STEPS: COMBO_STEPS, STAR_ACCURACY: STAR_ACCURACY, comboMultiplier: comboMultiplier,
     timingPrecision: timingPrecision, notePoints: notePoints, starsFor: starsFor, scoreText: scoreText,
