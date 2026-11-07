@@ -1256,6 +1256,42 @@
     return best;
   }
 
+  // ---------- the Today screen ----------
+
+  // "bar 5" / "bars 5-6" (an en dash).
+  function barsLabel(from, to) { return from === to ? "bar " + from : "bars " + from + "\u2013" + to; }
+
+  function slipsLabel(wrong, late) {
+    var out = [];
+    if (wrong) out.push(wrong + (wrong === 1 ? " wrong key" : " wrong keys"));
+    if (late) out.push(late + " off the beat");
+    return out.join(", ");
+  }
+
+  // What the Today screen offers: three tiles (the next lesson, a weak spot to fix, a song to try) and which
+  // one the remote starts on. o: { weak, songs, scores, lesson }. weak is the server's { song, from, to, wrong,
+  // late } or null; lesson is { title, number, status, step, steps } for the lesson to do next, { done: true }
+  // when all are passed, or null while they load (lessonLoading) or when they could not be loaded. A tile with nothing to offer is skip: it
+  // shows why but the focus passes over it. Returns { tiles: [{ id, kicker, title, detail, skip }], focus }.
+  function todayPlan(o) {
+    var byId = {};
+    (o.songs || []).forEach(function (s) { byId[s.id] = s; });
+    var lesson, weak, song, l = o.lesson, w = o.weak, sug = suggestSong(o.songs || [], o.scores);
+    if (!l) lesson = { id: "lesson", kicker: "Lessons", title: "Learn piano", detail: o.lessonLoading ? "Loading\u2026" : "The lessons could not be loaded", skip: true };
+    else if (l.done) lesson = { id: "lesson", kicker: "Lessons", title: "All lessons passed", detail: "Replay any of them", skip: false };
+    else lesson = { id: "lesson", kicker: "Continue lesson", title: "Lesson " + l.number, detail: l.title + (l.status === "in-progress" ? " \u00b7 step " + (l.step + 1) + " of " + l.steps : " \u00b7 start here"), skip: false };
+    if (w) {
+      var ws = byId[w.song];
+      weak = { id: "weak", kicker: "Fix a weak spot", title: barsLabel(w.from, w.to).replace(/^b/, "B"), detail: (ws ? ws.title : w.song) + " \u00b7 " + slipsLabel(w.wrong, w.late), skip: false };
+    } else weak = { id: "weak", kicker: "Fix a weak spot", title: "No weak spots", detail: "Play a song through and where it slips shows here", skip: true };
+    if (sug) {
+      var sc = o.scores && o.scores[sug.id];
+      song = { id: "song", kicker: "Try next song", title: sug.title || sug.id, detail: "Level " + (sug.level || 2) + " \u00b7 " + (sc && sc.plays ? "\u2605\u2605\u2605".slice(0, sc.bestStars || 0) + "\u2606\u2606\u2606".slice(0, 3 - (sc.bestStars || 0)) : "new"), skip: false, songId: sug.id };
+    } else song = { id: "song", kicker: "Try next song", title: "No songs yet", detail: "Add songs to the songs folder", skip: true };
+    var tiles = [lesson, weak, song];
+    return { tiles: tiles, focus: !weak.skip ? "weak" : !lesson.skip ? "lesson" : "song" };
+  }
+
   // ---------- remote focus ----------
 
   // One focused control at a time, moved with the remote's arrows. items are { id, col, row, skip? } placed
@@ -1305,6 +1341,7 @@
 
   return {
     slipsOf: slipsOf, worstPair: worstPair, compactBars: compactBars, weakSpot: weakSpot, latestWeakSpot: latestWeakSpot,
+    barsLabel: barsLabel, slipsLabel: slipsLabel, todayPlan: todayPlan,
     SHOW_FILTERS: SHOW_FILTERS, SHOW_NAMES: SHOW_NAMES, filterSongs: filterSongs, suggestSong: suggestSong,
     stepSong: stepSong, levelOf: levelOf, focusMove: focusMove, focusDir: focusDir,
     DAILY_GOAL_MIN: DAILY_GOAL_MIN, PLAY_CAP_MS: PLAY_CAP_MS, dayKey: dayKey, shiftDay: shiftDay, dayStats: dayStats,

@@ -85,6 +85,7 @@ Three steps, from the stool; run again whenever the keyboard or TV moves. Use th
 On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; letters are for a computer keyboard):
 
 - ◀ ▶: previous / next song (while a practice loop runs: move the loop by a bar).
+- Back: in the song view goes to Today (first putting away the results card, pause sheet or picker if one is open); on Today it does nothing. Back reaches the page as Escape, Backspace, GoBack or BrowserBack, or as key code 461 (LG webOS) or 10009 (Tizen).
 - ▲ (or H): cycle right hand / left hand / both hands. ▲ three times within about a second also switches the telemetry readout (see Telemetry); the three presses cycle the hand all the way round, so it ends as it was.
 - ▼ (or C): calibrate.
 - OK: opens the pause sheet (see below), or acts on the results card's focused button after a finish. Back puts the card away or resumes from the sheet. R restarts.
@@ -100,6 +101,10 @@ Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-
 Every note struck right scores 100 times a combo multiplier (x1, then x2 at 10 notes in a row, x3 at 25, x4 at 50); in tempo mode it is also scaled by timing, full inside 110 ms of the beat and falling to half at the edge of the 300 ms window. A wrong key or a missed note only starts the combo again. The score has no ceiling. A whole-song play earns 1, 2 or 3 stars at 70, 85 and 95 percent accuracy (95 is also the Mastered line). The results card shows the stars, the score counting up, a New best badge when the score beats the song's best, and the day's goal. Each song keeps its best score and best stars (shown under its title and on the progress screen); loops are saved but do not score.
 
 The daily goal is 10 minutes of any playing a day (whole songs, loops and practice; one play counts for at most 30 minutes) and the day streak is the days in a row with any play at all, kept through a day not yet played. Both are worked out from `piano-history.json` in the server's local days (`GET /api/piano/today`, and in the reply to each finished play), so nothing else is stored. The song view shows the goal bar and the streak; the progress screen adds the longest run, minutes this week, the mastered count and a four-week calendar.
+
+## Today
+
+The page opens on Today (unless the address has `?song=` or `?learn`): three tiles, the day streak with this week's dots, the daily goal as a ring, and buttons for All songs, Lessons and Progress. The tiles are Continue lesson (the next lesson not yet passed, opened straight into it), Fix a weak spot (the weak spot from `GET /api/piano/today`: its song loads and the bars loop) and Try next song (the easiest song never played; when all have been, the one with the fewest stars). A tile with nothing to offer says why and the focus skips it; focus starts on the weak spot when there is one. The arrows move the one focused element, OK opens it, and Back does nothing here. The song stays paused behind Today, and keys played on the keyboard are ignored until a song is chosen. Back from All songs or Lessons opened from here returns to Today; the pause sheet has a Today row too.
 
 ## The song picker
 

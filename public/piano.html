@@ -37,7 +37,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #listen .meter{display:none;margin:.5rem 0 .1rem;height:.5rem;border-radius:.25rem;background:rgba(255,255,255,.14);overflow:hidden}
 #listen.whole .meter{display:block}
 #listen .meter i{display:block;height:100%;width:0;background:var(--green)}
-#toast{z-index:5;position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
+#toast{z-index:8;position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:.6rem 1.6rem;font-size:1.6rem;font-weight:800;white-space:nowrap;opacity:0;transition:opacity .25s ease;pointer-events:none}
 #toast.on{opacity:1}
 #want span.right{color:var(--rh)}#want span.left{color:var(--lh)}
 #loopBox{display:none}#loopBox.on{display:block}
@@ -177,6 +177,39 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #picker .none{font-size:1.3rem;color:var(--mut);padding:1rem}
 #picker .keys{font-size:.95rem;color:var(--mut)}
 @media (prefers-reduced-motion:reduce){#picker .chip,#picker .row{transition:none}}
+/* Today: the home screen. Tiles and buttons take the remote's focus one at a time. */
+#home{position:absolute;left:0;top:0;width:100%;height:100%;background:var(--bg);z-index:6;display:none;flex-direction:column;padding:2rem 4rem}
+#home.on{display:flex}
+#home .head{display:flex;align-items:baseline;gap:1.5rem}
+#home h1{font-size:2.6rem;font-weight:800}
+#home .date{font-size:1.3rem;color:var(--txt2)}
+#home .tiles{display:flex;gap:1.5rem;margin-top:1.6rem}
+#home .tile{flex:1;min-width:0;background:var(--card);border:.12rem solid var(--line2);border-radius:.9rem;padding:1.3rem 1.5rem;transition:transform .12s ease,box-shadow .12s ease}
+#home .tile .k{display:block;font-size:.95rem;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.12em}
+#home .tile b{display:block;font-size:2.2rem;font-weight:800;margin:.3rem 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#home .tile .d{font-size:1.2rem;color:var(--txt2);line-height:1.35;min-height:3.2rem}
+#home .tile.skip{opacity:.55}
+#home .tile.skip .k{color:var(--mut)}
+#home .tile.foc,#home .btn.foc{background:#1c2a42;border-color:var(--blue);box-shadow:0 0 0 .25rem rgba(77,163,255,.35);transform:translateY(-.3rem)}
+#home .mid{display:flex;gap:1.5rem;margin-top:1.5rem}
+#home .card{flex:1;background:var(--card);border:.12rem solid var(--line);border-radius:.9rem;padding:1.1rem 1.5rem;display:flex;align-items:center;gap:1.5rem}
+#home .card .k{display:block;font-size:.9rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em}
+#home .card .big{font-size:3rem;font-weight:800;line-height:1}
+#home .card .u{font-size:1.2rem;color:var(--txt2)}
+#home .dots{display:flex;gap:.6rem;margin-left:auto}
+#home .dots span{display:block;text-align:center;font-size:.85rem;color:var(--mut)}
+#home .dots i{display:block;width:1.8rem;height:1.8rem;border-radius:50%;border:.15rem solid var(--line2);margin-bottom:.2rem}
+#home .dots i.goal{background:var(--green);border-color:var(--green)}
+#home .dots i.played{border-color:var(--green)}
+#home .dots i.future{border-color:transparent;background:var(--line)}
+#home .dots i.today{box-shadow:0 0 0 .18rem var(--blue)}
+#home .ring{width:6.5rem;height:6.5rem;flex:none}
+#home .ring circle{fill:none;stroke-width:10}
+#home .btns{display:flex;gap:1.5rem;margin-top:1.8rem}
+#home .btn{flex:1;text-align:center;font-size:1.6rem;font-weight:700;padding:.8rem 1rem;border-radius:.8rem;border:.12rem solid var(--line2);background:var(--card);transition:transform .12s ease,box-shadow .12s ease}
+#home .keys{margin-top:auto;font-size:1rem;color:var(--mut)}
+#progress{z-index:7}
+@media (prefers-reduced-motion:reduce){#home .tile,#home .btn{transition:none}}
 /* Tutorial mode: every text is 1.6rem (32 px on a 1080-tall TV) or bigger. */
 #tutor{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(84rem,94%);background:rgba(19,26,39,.97);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.8rem;display:none;text-align:left}
 body.tutor #tutor{display:block}
@@ -238,6 +271,7 @@ body.tutor #toast{z-index:5}
 <div id="result"></div>
 <div id="pause"></div>
 <div id="picker"></div>
+<div id="home"></div>
 <div id="progress"></div>
 <div id="tutor"></div>
 <script src="/piano-core.js"></script>
@@ -304,6 +338,8 @@ body.tutor #toast{z-index:5}
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
   var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
   var progressOn = false, history = null;
+  var home = null;          // the Today screen while it is open: { focus, lessons, progress }
+  var startHome = !/[?&](song|learn)\b/.test(location.search);  // the page opens on Today, unless a song or the lessons were asked for
   var picker = null;        // the song picker while it is open: { focus, offset, levels, show, wasPaused }
   var pendingPractise = null;  // a weak spot to start once its song has loaded
   var practise = null;      // a weak spot being practised: { song, from, to, before: { wrong, late }, bars, cleared: [[from, to], ...] }
@@ -383,9 +419,9 @@ body.tutor #toast{z-index:5}
     if (!song) return;
     cancelListen();
     loop = P.clampLoop(song, loop);
-    var keepPause = !!pauseSheet;   // a hand change from the pause sheet leaves it open and the song paused
+    var keepPause = !!pauseSheet, hold = keepPause || !!home || !!picker;   // a screen over the song keeps it paused
     session = tempo ? P.createTempoSession(song, { hand: hand, loop: loop, speed: speed, tolerant: micMode, countIn: P.countInBeats(countInOn, song.beatsPerBar || 4) }) : P.createSession(song, { hand: hand, loop: loop, tolerant: micMode });
-    startClock(); paused = keepPause; held = {}; playStart = 0; lastResult = null; marks = {};
+    startClock(); paused = hold; held = {}; playStart = 0; lastResult = null; marks = {};
     playMode = tempo ? "tempo" : "wait"; playSpeed = tempo ? speed / 100 : 1;
     showBest();
     modeText();
@@ -842,10 +878,10 @@ body.tutor #toast{z-index:5}
   // Which song plays: the one asked for (remote or link page), else ?song=, else the last one
   // played on this TV, else the first song in songs/.
   function remembered() { try { return localStorage.getItem("pianoSong") || ""; } catch (e) { return ""; } }
-  function loadSong(id) {
+  function loadSong(id, stay) {
     var want = /[?&]song=([^&]+)/.exec(location.search);
     getJson("/api/piano/songs", function (err, list) {
-      if (err) { $("title").textContent = "Songs unavailable"; return setTimeout(function () { loadSong(id); }, 10000); }
+      if (err) { $("title").textContent = "Songs unavailable"; return setTimeout(function () { loadSong(id, stay); }, 10000); }
       songs = list.songs;
       var ok = songs.filter(function (s) { return !s.error; });
       function find(x) { return x && ok.filter(function (s) { return s.id === x; })[0]; }
@@ -855,9 +891,10 @@ body.tutor #toast{z-index:5}
         if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(function () { loadSong(id); }, 10000); }
         songId = pick.id;
         try { localStorage.setItem("pianoSong", songId); } catch (e) {}
-        closePause(false); practise = null; closePicker(false);
+        closePause(false); practise = null; closePicker(false); if (!stay) closeHome();
         rawSong = s; song = null; session = null; held = {}; loop = null;
         fitSong();
+        if (startHome) { startHome = false; if (mode === "play" && !tutor) openHome(); }
         if (pendingPractise) { var pp = pendingPractise; pendingPractise = null; startPractise(pp.pair, pp.bars); }
         var sc = scoreOf(songId);
         if (id) toast(s.title + (sc && sc.fullPlays ? " · best " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " ★" : "") : ""));
@@ -918,7 +955,7 @@ body.tutor #toast{z-index:5}
     if (mode === "cal1") { work.low = n; calNote(); return; }
     if (mode === "cal2") { work.high = n; calNote(); return; }
     if (mode === "cal3" || !session) return;
-    if (progressOn || pauseSheet || picker) return;
+    if (progressOn || pauseSheet || picker || home) return;
     if (session.done) { restart(); held[n] = true; }
     if (session.tempo && paused) return;
     // Settle the misses up to now first, so the hint for a wrong key points at a note still to come.
@@ -971,7 +1008,7 @@ body.tutor #toast{z-index:5}
 
   // Today's goal and day streak: asked for at the start and after each finished play, shown on the left.
   function loadToday() {
-    getJson("/api/piano/today", function (err, d) { if (!err && d) { today = d; showToday(); if (progressOn) renderProgress(); } });
+    getJson("/api/piano/today", function (err, d) { if (!err && d) { today = d; showToday(); if (progressOn) renderProgress(); if (home) renderHome(); } });
   }
 
   function goalText(t) {
@@ -1073,7 +1110,7 @@ body.tutor #toast{z-index:5}
   }
 
   function startCalibration() {
-    closePause(false); closePicker(false);
+    closePause(false); closePicker(false); closeHome();
     cancelListen();
     work = { low: cal.low, high: cal.high, left: cal.left, right: cal.right, screenPx: W, mode: "seat" };
     mode = "cal1"; calWarn = ""; held = {};
@@ -1089,6 +1126,7 @@ body.tutor #toast{z-index:5}
 
   function ok() {
     if (progressOn) toggleProgress(false);
+    else if (home) homeActivate();
     else if (resultOn()) resultActivate();
     else if (picker) pickerActivate();
     else if (mode === "cal1") { mode = "cal2"; calWarn = ""; panel(); }
@@ -1103,12 +1141,14 @@ body.tutor #toast{z-index:5}
 
   function back() {
     if (progressOn) toggleProgress(false);
+    else if (home) return;   // Today is the home screen: Back has nowhere to go
     else if (resultOn()) hideResult(true);
     else if (picker) closePicker(true);
     else if (pauseSheet) closePause(true);
     else if (mode === "cal3") { mode = "cal2"; panel(); }
     else if (mode === "cal2") { mode = "cal1"; panel(); }
     else if (mode === "cal1") { mode = "play"; setLayout(cal); panel(); }
+    else if (mode === "play" && !tutor) openHome();   // the song view's Back goes to Today
     report();
   }
 
@@ -1149,6 +1189,12 @@ body.tutor #toast{z-index:5}
     else if (c.cmd === "rampTarget") setRampTarget(c.id);
   }
 
+  // Back on a remote or keyboard: Escape, Backspace, the named back keys, and webOS and Tizen's key codes when the key has no name.
+  function isBack(e) {
+    var k = e.key;
+    return k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack" || ((k === undefined || k === "Unidentified") && (e.keyCode === 461 || e.keyCode === 10009));
+  }
+
   // Play-pause on the Fire TV remote; L on a keyboard.
   function isLoopKey(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
@@ -1170,6 +1216,7 @@ body.tutor #toast{z-index:5}
     if (tutor && tutorKey(e)) return;
     if (pauseSheet && pauseKey(e)) return;
     if (picker && pickerKey(e)) return;
+    if (home && homeKey(e)) return;
     if (TVSwitch.isListenKey(e)) {
       e.preventDefault();
       if (!e.repeat) {
@@ -1195,7 +1242,7 @@ body.tutor #toast{z-index:5}
       e.preventDefault();
     }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
-    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn || resultOn() || pauseSheet || picker) { back(); e.preventDefault(); } }
+    else if (isBack(e)) { back(); e.preventDefault(); }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
     else if ((k === "e" || k === "E") && mode === "play") { if (!e.repeat) openTutor(); }
     else if ((k === "a" || k === "A") && mode === "play") { if (!e.repeat) openPicker(); }
@@ -1237,13 +1284,13 @@ body.tutor #toast{z-index:5}
   }
 
   // leave: the songs to go back to with ◀ and ▶ (the neighbours of the tutorial in the song list).
-  function openTutor(leave) {
+  function openTutor(leave, fromHome, autostart) {
     if (tutor || mode !== "play") return;
-    closePause(false); closePicker(false);
+    closePause(false); closePicker(false); closeHome();
     cancelListen();
-    tutorStash = { rawSong: rawSong, origin: songId, leave: leave || { left: songId, right: songId } };
+    tutorStash = { rawSong: rawSong, origin: songId, leave: leave || { left: songId, right: songId }, fromHome: !!fromHome };
     rawSong = null; song = null; session = null; held = {}; flash = {}; marks = {}; paused = false; loop = null;
-    tutor = { screen: "menu", lessons: [], progress: PL.emptyProgress(), sel: 0, loading: true, error: "", errors: 0, runner: null, lesson: null, index: 0, view: "", still: false, msg: "", msgKind: "", busy: false };
+    tutor = { screen: "menu", lessons: [], progress: PL.emptyProgress(), sel: 0, loading: true, error: "", errors: 0, runner: null, lesson: null, index: 0, view: "", still: false, msg: "", msgKind: "", busy: false, autostart: !!autostart };
     document.body.className = "tutor";
     $("hint").className = ""; hintUntil = 0; $("count").className = ""; shownCount = -1;
     tutorRender(); report();
@@ -1257,6 +1304,8 @@ body.tutor #toast{z-index:5}
       var n = PL.nextLesson(tutor.lessons, tutor.progress);
       tutor.sel = n < 0 ? 0 : n;
       tutorRender();
+      // From Today's Continue lesson: straight into the lesson, no extra OK.
+      if (tutor.autostart && n >= 0) { tutor.autostart = false; startLesson(n, false); }
     });
   }
 
@@ -1264,13 +1313,14 @@ body.tutor #toast{z-index:5}
   function closeTutor(dir) {
     if (!tutor) return;
     stopHear(true);
-    var st = tutorStash, id = st ? (dir < 0 ? st.leave.left : dir > 0 ? st.leave.right : st.origin) : songId;
+    var st = tutorStash, backHome = !!(st && st.fromHome), id = st ? (backHome || !dir ? st.origin : dir < 0 ? st.leave.left : st.leave.right) : songId;
     tutor = null; tutorStash = null; tutorHear = null; held = {}; flash = {}; marks = {}; paused = false;
     document.body.className = ""; $("tutor").innerHTML = ""; $("count").className = ""; shownCount = -1;
     session = null; song = null;
     rawSong = st ? st.rawSong : null;
-    if (id && id !== songId) loadSong(id); else if (rawSong) fitSong(); else loadSong(songId);
+    if (id && id !== songId) loadSong(id, backHome); else if (rawSong) fitSong(); else loadSong(songId, backHome);
     lastPlace = ""; panel(); report();
+    if (backHome) openHome();   // the lessons were opened from Today: Back comes home
   }
 
   function tutorMenu() {
@@ -1380,7 +1430,7 @@ body.tutor #toast{z-index:5}
     if (TVSwitch.isSwitchKey(e) || k === "b" || k === "B" || k === "o" || k === "O" || k === "x" || k === "X" || k === "d" || k === "D") return false;
     e.preventDefault();
     if (e.repeat) return true;
-    var run = tutor.runner, back = k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack";
+    var run = tutor.runner, back = isBack(e);
     if (TVSwitch.isListenKey(e)) { if (run) tutorHearToggle(); return true; }
     if (tutor.screen === "menu") {
       if (k === "ArrowUp") tutorSelect(-1);
@@ -1657,7 +1707,8 @@ body.tutor #toast{z-index:5}
       var d = JSON.parse(m.data);
       songs = d.songs;
       if (tutor) return;
-      if (!rawSong || (mode === "play" && d.changed.indexOf(songId) >= 0)) loadSong(songId);
+      if (!rawSong || (mode === "play" && d.changed.indexOf(songId) >= 0)) loadSong(songId, true);
+      if (home) renderHome();
     });
   }
 
@@ -1755,6 +1806,111 @@ body.tutor #toast{z-index:5}
     status();
   }
 
+  // ---------- Today ----------
+  // The home screen: the lesson to continue, a weak spot to fix and a song to try as three tiles, the day streak and
+  // the daily goal, and buttons for All songs, Lessons and Progress. The page opens on it and Back in the song view comes
+  // back to it; Back here does nothing. The song waits paused behind it. Arrows move the one focus, OK opens.
+
+  var HOME_BTNS = [{ id: "songs", label: "All songs" }, { id: "lessons", label: "Lessons" }, { id: "progress", label: "Progress" }];
+
+  function openHome() {
+    if (home || tutor || mode !== "play") return;
+    cancelListen();
+    closePause(false); closePicker(false);
+    hideResult();
+    home = { focus: "", moved: false, lessons: null, progress: null };
+    paused = true;
+    renderHome();
+    loadToday();
+    getJson("/api/piano/lessons", function (err, d) {
+      if (!home) return;
+      home.lessons = err ? [] : d.lessons.filter(function (l) { return !l.error; });
+      home.progress = err ? null : PL.validProgress(d.progress);
+      renderHome();
+    });
+    report();
+  }
+
+  // resume: carry on with the song that was open behind Today.
+  function closeHome(resume) {
+    if (!home) return;
+    home = null;
+    $("home").className = ""; $("home").innerHTML = "";
+    if (resume) paused = false;
+    lastSide = ""; report();
+  }
+
+  // The next lesson for Today's tile: null when the lessons could not be read.
+  function homeLesson() {
+    if (!home || !home.lessons || !home.lessons.length) return null;
+    var ls = home.lessons, pr = home.progress || PL.emptyProgress(), n = PL.nextLesson(ls, pr);
+    if (n < 0) return { done: true };
+    var st = PL.lessonState(pr, ls[n].id);
+    return { title: ls[n].title, number: n + 1, status: st.status, step: st.step, steps: ls[n].steps };
+  }
+
+  function homePlan() {
+    return P.todayPlan({ weak: today && today.weak, songs: songs, scores: pickerScores(), lesson: homeLesson(), lessonLoading: !!(home && !home.lessons) });
+  }
+
+  function homeItems(plan) {
+    var items = plan.tiles.map(function (t, i) { return { id: t.id, col: i, row: 0, skip: t.skip }; });
+    HOME_BTNS.forEach(function (b, i) { items.push({ id: b.id, col: i, row: 1 }); });
+    return items;
+  }
+
+  function renderHome() {
+    if (!home) return;
+    var plan = homePlan(), h = "", t = today;
+    // Until the arrows are used the focus follows what Today has to offer as its data arrives.
+    var tile = plan.tiles.filter(function (x) { return x.id === home.focus; })[0];
+    if (!home.moved || (tile && tile.skip)) home.focus = plan.focus;
+    h += '<div class="head"><h1>Today</h1><span class="date">' + esc(new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })) + '</span></div><div class="tiles">';
+    plan.tiles.forEach(function (x) {
+      h += '<div class="tile' + (x.skip ? " skip" : "") + (home.focus === x.id ? " foc" : "") + '"><span class="k">' + esc(x.kicker) + "</span><b>" + esc(x.title) + '</b><span class="d">' + esc(x.detail) + "</span></div>";
+    });
+    h += '</div><div class="mid">';
+    if (t) {
+      var labels = ["M", "T", "W", "T", "F", "S", "S"];
+      h += '<div class="card"><div><span class="k">Day streak</span><span class="big">' + t.streak + '</span> <span class="u">' + (t.streak === 1 ? "day" : "days") + ' in a row</span></div><div class="dots">' +
+        t.week.map(function (c, i) { return "<span><i class=\"" + c.status + (c.today ? " today" : "") + '"></i>' + labels[i] + "</span>"; }).join("") + "</div></div>";
+      var C = 2 * Math.PI * 42;
+      h += '<div class="card"><svg class="ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" stroke="#1c2433"></circle><circle cx="50" cy="50" r="42" stroke="' + (t.goalMet ? "#ffb020" : "#3ddc84") + '" stroke-dasharray="' + (C * t.goal).toFixed(1) + " " + C.toFixed(1) + '" transform="rotate(-90 50 50)" stroke-linecap="round"></circle></svg>' +
+        '<div><span class="k">Daily goal</span><span class="big">' + minutesText(t.minutesToday) + '</span> <span class="u">of ' + t.goalMin + " min" + (t.goalMet ? " · goal met" : "") + "</span></div></div>";
+    }
+    h += '</div><div class="btns">' + HOME_BTNS.map(function (b) { return '<span class="btn' + (home.focus === b.id ? " foc" : "") + '">' + esc(b.label) + "</span>"; }).join("") + "</div>";
+    h += '<div class="keys">▲ ▼ ◀ ▶ move · OK open · Back does nothing here</div>';
+    $("home").innerHTML = h; $("home").className = "on";
+  }
+
+  function homeMove(dir) {
+    var m = P.focusMove(homeItems(homePlan()), home.focus, dir);
+    home.focus = m.id; home.moved = true;
+    renderHome();
+  }
+
+  function homeActivate() {
+    var id = home.focus, plan = homePlan();
+    if (id === "weak") { var w = today && today.weak; if (!w) return; closeHome(false); startPractise(w, null); }
+    else if (id === "song") { var t = plan.tiles[2]; if (t.skip) return; closeHome(false); loadSong(t.songId); }
+    else if (id === "lesson") { var l = homeLesson(); if (!l) return; closeHome(false); openTutor(null, true, !l.done); }
+    else if (id === "songs") { closeHome(false); openPicker(true); }
+    else if (id === "lessons") { closeHome(false); openTutor(null, true, false); }
+    else if (id === "progress") toggleProgress(true);
+  }
+
+  function homeKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    var k = e.key, d = P.focusDir(k);
+    // Progress opens over Today; it takes OK and Back itself and the other keys stay away from the song behind.
+    if (progressOn) return !(k === "Enter" || k === " " || isBack(e));
+    if (d) { if (!e.repeat || d === "up" || d === "down") homeMove(d); e.preventDefault(); return true; }
+    if (k === "Enter" || k === " ") { e.preventDefault(); if (!e.repeat) homeActivate(); return true; }
+    if (isBack(e)) { e.preventDefault(); return true; }
+    // Nothing else reaches the song behind Today, except the wall switch and the room light and effect keys.
+    return !(TVSwitch.isSwitchKey(e) || /^[bBoOxXdD]$/.test(k));
+  }
+
   // ---------- song picker ----------
   // All songs with level, stars and best score. A rail of filters (levels 1 to 5, then Show: All, New, Not 3★,
   // Mastered) beside the songs; the songs scroll past ROWS. ▲ ▼ ◀ ▶ move the one focused element (PianoCore.focusMove),
@@ -1772,12 +1928,12 @@ body.tutor #toast{z-index:5}
 
   function pickerList() { return P.filterSongs(songs, pickerScores(), { levels: picker.levels, show: picker.show }); }
 
-  function openPicker() {
+  function openPicker(fromHome) {
     if (picker || tutor || mode !== "play" || !songs.length) return;
     cancelListen();
     var was = pauseSheet ? false : paused;
     closePause(false);
-    picker = { focus: "", offset: 0, levels: {}, show: "all", wasPaused: was };
+    picker = { focus: "", offset: 0, levels: {}, show: "all", wasPaused: was, fromHome: !!fromHome };
     paused = true;
     var list = pickerList(), at = -1;
     list.forEach(function (sg, i) { if (sg.id === songId) at = i; });
@@ -1790,9 +1946,10 @@ body.tutor #toast{z-index:5}
   // Back (resume true) or choosing a song (false: the song that loads starts afresh).
   function closePicker(resume) {
     if (!picker) return;
-    var was = picker.wasPaused;
+    var was = picker.wasPaused, fromHome = picker.fromHome;
     picker = null;
     $("picker").className = ""; $("picker").innerHTML = "";
+    if (resume && fromHome) { openHome(); return; }   // Back from the picker opened on Today: back to Today
     if (resume) paused = was;
     lastSide = ""; report();
   }
@@ -1862,7 +2019,7 @@ body.tutor #toast{z-index:5}
     var k = e.key, d = P.focusDir(k);
     if (d) { if (!e.repeat || d === "up" || d === "down") pickerMove(d); e.preventDefault(); return true; }
     if (k === "Enter" || k === " ") { e.preventDefault(); if (!e.repeat) pickerActivate(); return true; }
-    if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { e.preventDefault(); if (!e.repeat) closePicker(true); return true; }
+    if (isBack(e)) { e.preventDefault(); if (!e.repeat) closePicker(true); return true; }
     return false;
   }
 
@@ -1880,6 +2037,7 @@ body.tutor #toast{z-index:5}
       { id: "hand", label: "Hand", sub: "◀ " + HAND_NAMES[session.hand] + " ▶" },
       { id: "restart", label: "Restart" },
       { id: "songs", label: "All songs" },
+      { id: "home", label: "Today" },
     ];
   }
 
@@ -1932,6 +2090,7 @@ body.tutor #toast{z-index:5}
     else if (id === "hand") pauseAdjust(1);
     else if (id === "restart") { closePause(false); restart(); }
     else if (id === "songs") { closePause(true); openPicker(); }
+    else if (id === "home") { closePause(false); openHome(); }
   }
 
   function pauseKey(e) {
@@ -1940,7 +2099,7 @@ body.tutor #toast{z-index:5}
     if (d === "up" || d === "down") { if (!e.repeat) pauseMove(d); e.preventDefault(); return true; }
     if (d) { if (!e.repeat) pauseAdjust(d === "left" ? -1 : 1); e.preventDefault(); return true; }
     if (k === "Enter" || k === " ") { e.preventDefault(); if (!e.repeat) pauseActivate(); return true; }
-    if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { e.preventDefault(); if (!e.repeat) closePause(true); return true; }
+    if (isBack(e)) { e.preventDefault(); if (!e.repeat) closePause(true); return true; }
     return false;
   }
 
