@@ -182,9 +182,17 @@
         beatsPerBar: Number(raw.beatsPerBar) > 0 ? Number(raw.beatsPerBar) : 4,
         // Key signature for the sheet music ("G", "Bb", "Em"); guessed from the notes when empty.
         key: String(raw.key || ""),
+        // 1 (easiest) to 5, from the song's difficulty; 2 when it gives none.
+        level: levelOf(raw.difficulty),
         notes: notes,
       },
     };
+  }
+
+  // A song's level, 1 (easiest) to 5, from its difficulty field; 2 when it has none.
+  function levelOf(difficulty) {
+    var d = Math.round(Number(difficulty));
+    return d >= 1 ? Math.min(5, d) : 2;
   }
 
   // Shift notes outside [low, high] by whole octaves until they fit; shifted notes are flagged.
@@ -327,6 +335,7 @@
       wrong: 0,
       streak: 0,
       bestStreak: 0,
+      score: 0,
       lastWrong: null,
       wrongKeys: {},
       passes: 0,
@@ -378,6 +387,7 @@
         if (s.hit[want]) return { result: "ignored" };
         s.hit[want] = true;
         s.correct++; s.streak++;
+        s.score += notePoints(s.streak);
         if (s.streak > s.bestStreak) s.bestStreak = s.streak;
         s.lastWrong = null;
         if (s.waitingFor().length) return { result: "correct" };
@@ -404,7 +414,7 @@
       return { result: "wrong", hint: s.lastWrong.hint, target: target };
     };
     s.restart = function () {
-      s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.wrongKeys = {};
+      s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.score = 0; s.lastWrong = null; s.wrongKeys = {};
       s.passes = 0; s.passWrong = 0; s.cleanPasses = 0;
       s.done = steps.length === 0;
     };
@@ -418,6 +428,48 @@
   // late, and a note not struck by the end of its window is missed.
   var TEMPO_WINDOW_MS = 300, TEMPO_ON_MS = 110;
   var SPEED_MIN = 50, SPEED_MAX = 100, SPEED_STEP = 5;
+
+  // ---------- score and stars ----------
+
+  // Every note struck right is worth NOTE_POINTS times the combo multiplier times its timing precision.
+  // The score has no ceiling: a longer or cleaner play always scores more. Wrong keys and misses cost
+  // nothing but the combo, which starts again from 1. Stars come from accuracy alone.
+  var NOTE_POINTS = 100;
+  var COMBO_STEPS = [10, 25, 50];      // combo (notes in a row) at which the multiplier becomes 2, 3 and 4
+  var STAR_ACCURACY = [70, 85, 95];    // accuracy (percent) for one, two and three stars; 95 is the Mastered line
+
+  // The score multiplier for a combo of streak notes in a row: 1 to 4.
+  function comboMultiplier(streak) {
+    var m = 1;
+    for (var i = 0; i < COMBO_STEPS.length; i++) if (streak >= COMBO_STEPS[i]) m++;
+    return m;
+  }
+
+  // How exactly a note was timed, 1 down to 0.5: full inside the on-time window, then falling in a
+  // straight line to half at the edge of the timing window. null (wait mode has no timing) is exact.
+  function timingPrecision(ms) {
+    if (ms == null) return 1;
+    var a = Math.abs(ms);
+    if (a <= TEMPO_ON_MS) return 1;
+    return Math.max(0.5, 1 - 0.5 * (a - TEMPO_ON_MS) / (TEMPO_WINDOW_MS - TEMPO_ON_MS));
+  }
+
+  // Points for one note struck right when the combo has reached streak (this note included).
+  function notePoints(streak, ms) {
+    return Math.round(NOTE_POINTS * comboMultiplier(streak) * timingPrecision(ms));
+  }
+
+  // 0 to 3 stars for a play with this accuracy (percent).
+  function starsFor(accuracy) {
+    var n = 0;
+    for (var i = 0; i < STAR_ACCURACY.length; i++) if (accuracy >= STAR_ACCURACY[i]) n = i + 1;
+    return n;
+  }
+
+  // "12,400": thousands separated by a comma, the same in every browser.
+  function scoreText(n) {
+    return String(Math.max(0, Math.round(Number(n) || 0))).replace(/\B(?=(\d{3})+$)/g, ",");
+  }
 
   // A tempo-mode speed in percent of the song's tempo: SPEED_MIN-SPEED_MAX in SPEED_STEP steps.
   function clampSpeed(pct) {
@@ -528,6 +580,7 @@
         if (timing === "on time") s.onTime++; else if (timing === "early") s.early++; else s.late++;
         s.lastTiming = { timing: timing, ms: Math.round(d * beatMs) };
         s.offsetMsSum += s.lastTiming.ms;
+        s.score += notePoints(s.streak, s.lastTiming.ms);
         s.lastWrong = null;
         return { result: "hit", timing: timing, ms: s.lastTiming.ms };
       }
@@ -573,7 +626,7 @@
     };
     s.restart = function () {
       s.judged = {}; s.correct = 0; s.wrong = 0; s.missed = 0; s.onTime = 0; s.early = 0; s.late = 0;
-      s.streak = 0; s.bestStreak = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {}; s.offsetMsSum = 0;
+      s.streak = 0; s.bestStreak = 0; s.score = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {}; s.offsetMsSum = 0;
       s.passes = 0; s.passWrong = 0; s.passMissed = 0; s.cleanPasses = 0;
       s.done = notes.length === 0;
     };
@@ -923,6 +976,7 @@
       loop: session.loop ? { from: session.loop.from, to: session.loop.to } : null,
       accuracy: Math.round(session.accuracy() * 1000) / 10, bestStreak: session.bestStreak,
       correct: session.correct, wrong: session.wrong, wrongKeys: wrongKeys,
+      score: Math.max(0, Math.round(session.score || 0)),
       durationMs: Math.max(0, Math.round(extra.durationMs || 0)),
       timing: timingSummary(session),
     };
@@ -954,6 +1008,7 @@
       speed: Number(r.speed) > 0 && Number(r.speed) <= 4 ? Math.round(Number(r.speed) * 100) / 100 : 1,
       loop: loop, accuracy: Math.round(accuracy * 10) / 10, bestStreak: Math.floor(streak),
       correct: Math.floor(correct), wrong: Math.floor(wrong), wrongKeys: wrongKeys,
+      score: Math.min(1e9, Math.max(0, Math.floor(Number(r.score) || 0))),
       durationMs: Math.min(86400000, Math.max(0, Math.round(Number(r.durationMs) || 0))),
       timing: r.mode === "tempo" ? validTiming(r.timing) : null,
       at: Number(r.at) > 0 ? Math.floor(Number(r.at)) : 0,
@@ -972,12 +1027,14 @@
   function summarizeHistory(plays) {
     var out = {};
     (plays || []).forEach(function (r) {
-      var e = out[r.song] || (out[r.song] = { plays: 0, fullPlays: 0, bestAccuracy: null, bestStreak: 0, bestBothAccuracy: null, bestTiming: null, mastered: false, lastAt: 0 });
+      var e = out[r.song] || (out[r.song] = { plays: 0, fullPlays: 0, bestAccuracy: null, bestStreak: 0, bestBothAccuracy: null, bestTiming: null, bestScore: 0, bestStars: 0, mastered: false, lastAt: 0 });
       e.plays++;
       e.lastAt = Math.max(e.lastAt, r.at || 0);
       if (r.loop) return;
       e.fullPlays++;
       if (e.bestAccuracy == null || r.accuracy > e.bestAccuracy) e.bestAccuracy = r.accuracy;
+      e.bestStars = starsFor(e.bestAccuracy);
+      if ((r.score || 0) > e.bestScore) e.bestScore = r.score;
       if (r.bestStreak > e.bestStreak) e.bestStreak = r.bestStreak;
       if (r.hand === "both" && (e.bestBothAccuracy == null || r.accuracy > e.bestBothAccuracy)) e.bestBothAccuracy = r.accuracy;
       if (r.timing && (e.bestTiming == null || r.timing.accuracy > e.bestTiming)) e.bestTiming = r.timing.accuracy;
@@ -1011,7 +1068,9 @@
   }
 
   return {
-    stepSong: stepSong,
+    stepSong: stepSong, levelOf: levelOf,
+    NOTE_POINTS: NOTE_POINTS, COMBO_STEPS: COMBO_STEPS, STAR_ACCURACY: STAR_ACCURACY, comboMultiplier: comboMultiplier,
+    timingPrecision: timingPrecision, notePoints: notePoints, starsFor: starsFor, scoreText: scoreText,
     MASTER_ACCURACY: MASTER_ACCURACY, playRecord: playRecord, validPlay: validPlay, isMasteredPlay: isMasteredPlay,
     timingSummary: timingSummary, validTiming: validTiming, timingText: timingText, tendencyText: tendencyText, TENDENCY_MS: TENDENCY_MS,
     summarizeHistory: summarizeHistory, durationText: durationText, percentText: percentText,

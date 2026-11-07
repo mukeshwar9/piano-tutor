@@ -409,9 +409,9 @@ details.more>.body{padding:0 1.1rem 1rem}
     renderScores();
   }
 
-  // " · best 98% · streak 41 ★" for the song picker; empty before the first whole-song play.
+  // " · ★★☆ best 12,400 · 98%" for the song picker; empty before the first whole-song play.
   function scoreText(sc) {
-    return sc && sc.fullPlays ? " · best " + P.percentText(sc.bestAccuracy) + " · streak " + sc.bestStreak + (sc.mastered ? " ★" : "") : "";
+    return sc && sc.fullPlays ? " · " + "★★★".slice(0, sc.bestStars || 0) + "☆☆☆".slice(0, 3 - (sc.bestStars || 0)) + " best " + P.scoreText(sc.bestScore) + " · " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · mastered" : "") : "";
   }
   function renderScores() {
     var done = songList.filter(function (s) { return s.score && s.score.fullPlays; }), m = done.filter(function (s) { return s.score.mastered; });
@@ -574,7 +574,7 @@ details.more>.body{padding:0 1.1rem 1rem}
     $("play").innerHTML = "<b>" + esc(s.song || "-") + "</b> · " + mode + " · " + (hands[s.playHand] || "") + " · step " + Math.min(s.step + 1, s.steps) + " of " + s.steps +
       (s.loop ? "<br>Loop " + loopText(s.loop) + ": <b>" + s.cleanPasses + " of " + s.cleanNeeded + "</b> clean in a row · pass " + (s.passes + (s.done ? 0 : 1)) + (s.done ? " · <b>mastered</b>" : "") : "") +
       (s.tempo ? "<br>Tempo <b>" + s.speed + "%</b>" + (s.countIn ? " · count-in <b>" + s.countIn + "</b>" : "") + " · " + s.onTime + " on time, " + s.early + " early, " + s.late + " late, <b>" + s.missed + " missed</b>" : "") +
-      "<br>" + (s.tempo ? "Next" : "Waiting for") + " <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · streak " + s.streak +
+      "<br>" + (s.tempo ? "Next" : "Waiting for") + " <span class=want>" + esc(s.waitingFor.join(" ") || "-") + "</span> · accuracy " + s.accuracy + "% · score " + P.scoreText(s.score || 0) + " · combo " + s.streak +
       (s.hint ? "<br>Last hint: " + esc(s.hint) : "") +
       (s.calibration ? "<br>Strip " + Math.round(s.calibration.left) + "–" + Math.round(s.calibration.right) + " px of " + s.screenPx + ", keys " + P.noteName(s.calibration.low) + "–" + P.noteName(s.calibration.high) : "");
   }
