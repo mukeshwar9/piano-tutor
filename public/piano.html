@@ -337,6 +337,7 @@ body.tutor #toast{z-index:5}
   var hearTapAt = 0;        // when the hear key last started a bar (0: it did not, or the double press used it up)
   var PENDING_MS = 5000;    // a request to the server older than this is given up on: the next press starts afresh
   var wholeNote = "";       // why the whole song could not start or lost its sound, for the link page
+  var keysHidden = rememberedKeysHidden();  // notes-only view: no on-screen keyboard, the notes use the full height
   var fingers = rememberedFingers();  // finger numbers on the falling notes and lit keys
   var playMode = "wait", playSpeed = 1;  // what a finished play is recorded as (tempo mode sets both)
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
@@ -596,6 +597,18 @@ body.tutor #toast{z-index:5}
       click(audio.currentTime + Math.max(0, (b.beat - clock) * session.beatMs / 1000), b.accent);
     }
     clickedTo = ahead;
+  }
+
+  function rememberedKeysHidden() {
+    try { return P.parseKeysHidden(localStorage.getItem("pianoKeysHidden")); } catch (e) { return false; }
+  }
+
+  // Pause sheet row or Z: hide or show the on-screen keyboard (remembered on this device). id is "on", "off" or "".
+  function setKeysHidden(id) {
+    keysHidden = P.nextKeysHidden(keysHidden, id);
+    try { localStorage.setItem("pianoKeysHidden", keysHidden ? "on" : "off"); } catch (e) {}
+    toast(keysHidden ? "Keyboard hidden · notes only" : "Keyboard shown");
+    report();
   }
 
   function rememberedFingers() {
@@ -1282,6 +1295,7 @@ body.tutor #toast{z-index:5}
     else if ((k === "d" || k === "D") && mode === "play") { if (!e.repeat) setTelemetry(""); }
     else if ((k === "s" || k === "S" || k === "g" || k === "G") && mode === "play") toggleProgress();
     else if ((k === "v" || k === "V") && mode === "play") setView("");
+    else if ((k === "z" || k === "Z") && mode === "play") { if (!e.repeat) setKeysHidden(""); }
     else if ((k === "b" || k === "B") && mode === "play") { if (!e.repeat) toggleLight(); }
     else if ((k === "o" || k === "O") && mode === "play") { if (!e.repeat) nextPalette(); }
     else if ((k === "t" || k === "T") && mode === "play") { if (!e.repeat) setTempo(""); }
@@ -1803,7 +1817,7 @@ body.tutor #toast{z-index:5}
       hand: hand, playHand: session ? session.hand : hand, songHands: song ? song.hands : [], bars: song ? P.barCount(song) : 0,
       loop: loop, cleanPasses: session ? session.cleanPasses : 0, cleanNeeded: session ? session.cleanNeeded : P.LOOP_CLEAN, passes: session ? session.passes : 0,
       done: session ? session.done : false,
-      learn: tutor ? tutor.screen : "", telemetry: telemetryOn, listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, fx: fxPreset(), fxIntensity: fxIntensity, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
+      learn: tutor ? tutor.screen : "", telemetry: telemetryOn, listening: listen ? listen.label : "", listeningAll: !!((listen && listen.whole) || (pendingListen() && listenReq.whole)), wholeNote: wholeNote, fingers: fingers, keysHidden: keysHidden, fx: fxPreset(), fxIntensity: fxIntensity, progress: progressOn, playMode: playMode, view: view, micMode: micMode,
       metronome: metronome, clickVolume: clickVolume, countInOn: countInOn, ramp: ramp, rampTarget: rampTarget, rampSpeed: session && session.tempo ? session.speed : speed,
       tempo: tempo, speed: speed, countIn: session && session.tempo ? P.countIn(clock, session.range.start, session.range.countIn) : 0,
       missed: session && session.tempo ? session.missed : 0, early: session && session.tempo ? session.early : 0,
@@ -2065,6 +2079,7 @@ body.tutor #toast{z-index:5}
       { id: "practise", label: loop ? "Stop looping" : "Practise this bar", sub: loop ? barsText(loop) : "bar " + bar },
       { id: "hear", label: "Hear this bar", sub: loop ? barsText(loop) : "bar " + bar },
       { id: "hand", label: "Hand", sub: "◀ " + HAND_NAMES[session.hand] + " ▶" },
+      { id: "keys", label: "Keyboard", sub: "◀ " + (keysHidden ? "Hidden" : "Shown") + " ▶" },
       { id: "restart", label: "Restart" },
       { id: "songs", label: "All songs" },
       { id: "home", label: "Today" },
@@ -2108,6 +2123,7 @@ body.tutor #toast{z-index:5}
 
   // ◀ ▶ on the Hand row: the previous or next hand, the sheet stays open and the song stays paused.
   function pauseAdjust(d) {
+    if (pauseSheet.focus === "keys") { setKeysHidden(""); renderPause(); return; }
     if (pauseSheet.focus !== "hand") return;
     setHand(d > 0 ? P.nextHand(hand) : P.nextHand(P.nextHand(hand)));
   }
@@ -2117,7 +2133,7 @@ body.tutor #toast{z-index:5}
     if (id === "resume") closePause(true);
     else if (id === "practise") { closePause(false); toggleLoop(); }
     else if (id === "hear") { closePause(true); toggleListen(); }
-    else if (id === "hand") pauseAdjust(1);
+    else if (id === "hand" || id === "keys") pauseAdjust(1);
     else if (id === "restart") { closePause(false); restart(); }
     else if (id === "songs") { closePause(true); openPicker(); }
     else if (id === "home") { closePause(false); openHome(); }
@@ -2416,7 +2432,8 @@ body.tutor #toast{z-index:5}
 
   function draw(now) {
     var c = mode === "play" ? cal : work;
-    var keyTop = Math.round(H * (1 - KEY_H)), hitY = keyTop - Math.round(H * 0.006);
+    var noKeys = keysHidden && mode === "play" && !tutor;   // notes-only view
+    var geo = P.laneGeometry(H, KEY_H, noKeys), keyTop = geo.keyTop, hitY = geo.hitY;
     // With the sheet music up, the falling notes run from just under it (or not at all on their own).
     var box = sheetBox(), areaTop = box ? box.y + box.h + Math.round(H * 0.012) : 0, falling = !box || curView() === "both";
     areaTop = Math.max(areaTop, tutorBottom());
@@ -2425,7 +2442,7 @@ body.tutor #toast{z-index:5}
     var fxOn = fx.active, auroraOn = false;
     if (fxOn) {
       fx.layout(layout, keyTop, hitY, areaTop, Math.round((H - keyTop) * 0.62), W, H);
-      if (falling) { fxRect.x = c.left / DPR; fxRect.y = areaTop / DPR; fxRect.w = (c.right - c.left) / DPR; fxRect.h = (keyTop - areaTop) / DPR; }
+      if (falling) { fxRect.x = c.left / DPR; fxRect.y = areaTop / DPR; fxRect.w = (c.right - c.left) / DPR; fxRect.h = ((noKeys ? hitY : keyTop) - areaTop) / DPR; }
       fx.setAuroraRect(falling ? fxRect : null);
       auroraOn = falling && fx.auroraShown();
     }
@@ -2517,11 +2534,12 @@ body.tutor #toast{z-index:5}
     }
 
     // Hit line.
-    ctx.fillStyle = "#2a3446"; ctx.fillRect(c.left, hitY, c.right - c.left, Math.max(2, Math.round(2 * DPR)));
+    ctx.fillStyle = noKeys ? "#4a5a78" : "#2a3446"; ctx.fillRect(c.left, hitY, c.right - c.left, Math.max(2, Math.round((noKeys ? 3 : 2) * DPR)));
+    if (noKeys) drawFoot(geo, c, now, want, snd, current);
 
     // Keys: whites first, blacks on top at their real offsets.
     var blackH = Math.round((H - keyTop) * 0.62), lowFx = fxOn && fx.governed && fx.gov.level >= 3;
-    for (var pass = 0; pass < 2; pass++) {
+    for (var pass = 0; pass < (noKeys ? 0 : 2); pass++) {
       for (var m = layout.low; m <= layout.high; m++) {
         var kk = layout.keys[m];
         if (kk.black !== (pass === 1)) continue;
@@ -2775,6 +2793,23 @@ body.tutor #toast{z-index:5}
     ctx.font = "600 " + Math.round(H / 50) + 'px -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#8b97ab";
     ctx.fillText(text, box.x + box.w / 2, box.y + box.h / 2);
+  }
+
+  // Notes-only view: under the hit line, a thin strip names each key being asked for, or pressed, in its hand's colour.
+  function drawFoot(geo, c, now, want, snd, current) {
+    var m, kk, top = geo.footTop + Math.max(2, Math.round(3 * DPR));
+    ctx.fillStyle = "#0f1724"; ctx.fillRect(c.left, top, c.right - c.left, H - top);
+    for (m = layout.low; m <= layout.high; m++) {
+      kk = layout.keys[m];
+      var fill = null;
+      if (want[m] === "want" && current) fill = (HAND[current.hands[m]] || HAND.right).want;
+      else if (want[m] === "sound" && snd[m]) fill = (HAND[snd[m].hand] || HAND.right).want;
+      else if (flash[m] && flash[m].until > now) fill = flash[m].color;
+      else if (held[m]) fill = want[m] === "hit" ? "#3ddc84" : "#9fb3d1";
+      if (!fill) continue;
+      ctx.fillStyle = fill; ctx.fillRect(Math.round(kk.x0) + 1, top, Math.round(kk.x1 - kk.x0) - 2, H - top);
+      fingerText(P.noteName(m).replace(/-?\d+$/, ""), (kk.x0 + kk.x1) / 2, top + (H - top) / 2, Math.min((kk.x1 - kk.x0) * 0.62, (H - top) * 0.8, 24 * DPR), "#07101d");
+    }
   }
 
   function fingerText(f, cx, cy, size, color) {

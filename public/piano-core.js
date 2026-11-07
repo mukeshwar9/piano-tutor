@@ -1339,7 +1339,21 @@
     return ok[((i + (dir < 0 ? -1 : 1)) % ok.length + ok.length) % ok.length].id;
   }
 
+  // Notes-only view: the on-screen keyboard is hidden so the falling notes use the full height. The hit line then sits
+  // on a thin foot strip (a share of the screen height) that names the keys being asked for. Returns the line the
+  // keys start at (keyTop: the screen's bottom edge when hidden), the hit line, and the foot strip's top.
+  var FOOT_H = 0.05;
+  function laneGeometry(H, keyShare, hidden) {
+    if (!hidden) { var kt = Math.round(H * (1 - keyShare)); return { keyTop: kt, hitY: kt - Math.round(H * 0.006), footTop: kt, hidden: false }; }
+    var foot = Math.round(H * (1 - FOOT_H));
+    return { keyTop: H, hitY: foot, footTop: foot, hidden: true };
+  }
+  // The saved choice ("on" / "off", anything else is off) and its toggle ("on", "off" or "" to flip).
+  function parseKeysHidden(v) { return v === "on"; }
+  function nextKeysHidden(cur, id) { return id === "on" ? true : id === "off" ? false : !cur; }
+
   return {
+    laneGeometry: laneGeometry, FOOT_H: FOOT_H, parseKeysHidden: parseKeysHidden, nextKeysHidden: nextKeysHidden,
     slipsOf: slipsOf, worstPair: worstPair, compactBars: compactBars, weakSpot: weakSpot, latestWeakSpot: latestWeakSpot,
     barsLabel: barsLabel, slipsLabel: slipsLabel, todayPlan: todayPlan,
     SHOW_FILTERS: SHOW_FILTERS, SHOW_NAMES: SHOW_NAMES, filterSongs: filterSongs, suggestSong: suggestSong,

@@ -92,7 +92,7 @@ On the TV page (Fire TV remote keys arrive as keydown events in Fully Kiosk; let
 - Play-Pause (or L): loop the bar being played, or stop the loop.
 - Rewind (or P): Hear it first. Press Rewind twice within half a second, or hold it, or press W, to hear the whole song instead.
 - Fast-Forward (or M): switch to the other page (see Switching pages).
-- A: all songs (the song picker, also the pause sheet's All songs). E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: the telemetry readout (fps, frame times, effects level, note-to-light delay). V: falling notes, sheet music or both. S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
+- A: all songs (the song picker, also the pause sheet's All songs). E: tutorial mode (also by stepping ◀ or ▶ past the ends of the song list). F: finger numbers on / off. X: light effects (Off, Lite, Neon + Sparks, All). D: the telemetry readout (fps, frame times, effects level, note-to-light delay). V: falling notes, sheet music or both. Z: hide or show the on-screen keyboard (notes only; also the pause sheet's Keyboard row, remembered on this device). S: progress screen. T: tempo mode on / off, and - / = change its speed. K: metronome on / off. N: count-in on / off. U: speed ramp on / off. These have no free remote key; the link page has the same controls.
 
 Menu and Back never reach the page in Fully Kiosk, which is why Rewind and Fast-Forward were chosen (checked with `adb shell input keyevent`).
 

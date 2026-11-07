@@ -516,3 +516,22 @@ assert.strictEqual(strict.press(76).result, "wrong");
 assert.ok(P.tileLabels({ width: 14, nameLength: 3, top: 0, bottom: 20, gap: 2, hasFinger: false, dpr: 1 }).nameSize > 0, "name without a finger");
 
 console.log("ok");
+
+// Notes-only view: the lane geometry and the remembered toggle.
+{
+  const shown = P.laneGeometry(1000, 0.16, false);
+  assert.strictEqual(shown.keyTop, 840); assert.strictEqual(shown.hitY, 834); assert.strictEqual(shown.hidden, false);
+  const hid = P.laneGeometry(1000, 0.16, true);
+  assert.strictEqual(hid.keyTop, 1000, "keys are off the screen");
+  assert.strictEqual(hid.hitY, 950); assert.strictEqual(hid.footTop, 950);
+  assert(hid.hitY > shown.hitY, "the notes fall further when the keyboard is hidden");
+  assert(hid.hitY < hid.keyTop, "the hit line stays on screen");
+  assert.strictEqual(P.parseKeysHidden("on"), true);
+  assert.strictEqual(P.parseKeysHidden("off"), false);
+  assert.strictEqual(P.parseKeysHidden(null), false, "nothing saved: keyboard shown");
+  assert.strictEqual(P.parseKeysHidden("junk"), false);
+  assert.strictEqual(P.nextKeysHidden(false, ""), true);
+  assert.strictEqual(P.nextKeysHidden(true, ""), false);
+  assert.strictEqual(P.nextKeysHidden(true, "on"), true);
+  assert.strictEqual(P.nextKeysHidden(true, "off"), false);
+}
