@@ -1008,7 +1008,7 @@ body.tutor #toast{z-index:5}
   // Best score of the song on the left, under its title.
   function showBest() {
     var sc = song && scoreOf(songId), el = $("best");
-    el.innerHTML = sc && sc.fullPlays ? '<b class="stars">' + starsText(sc.bestStars) + "</b> · best " + P.scoreText(sc.bestScore) + " · " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · <b>mastered</b>" : "") : "";
+    el.innerHTML = sc && sc.fullPlays ? '<b class="stars">' + starsText(sc.bestStars) + "</b> · best " + (sc.bestScore > 0 ? P.scoreText(sc.bestScore) + " · " : "") + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · <b>mastered</b>" : "") : "";
   }
 
   // Today's goal and day streak: asked for at the start and after each finished play, shown on the left.
@@ -1097,7 +1097,7 @@ body.tutor #toast{z-index:5}
         "<td class=lvl>" + pips(sg.level || 2) + "</td>" +
         "<td class=badge>" + (sc && sc.fullPlays ? starsText(sc.bestStars) : "") + "</td>" +
         "<td>" + (sc && sc.fullPlays ? P.percentText(sc.bestAccuracy) : "-") + "</td>" +
-        "<td>" + (sc && sc.fullPlays ? P.scoreText(sc.bestScore) : "-") + "</td>" +
+        "<td>" + (sc && sc.bestScore > 0 ? P.scoreText(sc.bestScore) : "-") + "</td>" +
         "<td>" + (sc && sc.bestTiming != null ? P.percentText(sc.bestTiming) : "-") + "</td>" +
         "<td>" + (sc && sc.fullPlays ? sc.bestStreak : "-") + "</td>" +
         "<td>" + (sc ? sc.plays : 0) + "</td>" +
@@ -2016,7 +2016,7 @@ body.tutor #toast{z-index:5}
     list.slice(picker.offset, picker.offset + PICKER_ROWS).forEach(function (sg) {
       var s2 = sc[sg.id];
       h += '<div class="row' + (picker.focus === "song:" + sg.id ? " foc" : "") + (sg.id === songId ? " cur" : "") + '"><span class="t">' + esc(sg.title || sg.id) + '</span><span class="pips" title="Level ' + (sg.level || 2) + '">' + pips(sg.level || 2) + "</span>" +
-        '<span class="st">' + (s2 && s2.plays ? starsText(s2.bestStars || 0) : "") + '</span><span class="sc">' + (s2 && s2.fullPlays ? P.scoreText(s2.bestScore) : "") + '</span><span class="md">' + (s2 && s2.mastered ? "Mastered" : !(s2 && s2.plays) ? "New" : "") + "</span></div>";
+        '<span class="st">' + (s2 && s2.plays ? starsText(s2.bestStars || 0) : "") + '</span><span class="sc">' + (s2 && s2.bestScore > 0 ? P.scoreText(s2.bestScore) : "") + '</span><span class="md">' + (s2 && s2.mastered ? "Mastered" : !(s2 && s2.plays) ? "New" : "") + "</span></div>";
     });
     var below = list.length - picker.offset - PICKER_ROWS;
     h += '<div class="more">' + (below > 0 ? "▼ " + below + " more" : "") + '</div></div></div><div class="keys">▲ ▼ ◀ ▶ move · OK play the song or switch a filter · Back to the song</div>';

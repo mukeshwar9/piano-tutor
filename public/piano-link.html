@@ -416,7 +416,7 @@ details.more>.body{padding:0 1.1rem 1rem}
 
   // " · ★★☆ best 12,400 · 98%" for the song picker; empty before the first whole-song play.
   function scoreText(sc) {
-    return sc && sc.fullPlays ? " · " + "★★★".slice(0, sc.bestStars || 0) + "☆☆☆".slice(0, 3 - (sc.bestStars || 0)) + " best " + P.scoreText(sc.bestScore) + " · " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · mastered" : "") : "";
+    return sc && sc.fullPlays ? " · " + "★★★".slice(0, sc.bestStars || 0) + "☆☆☆".slice(0, 3 - (sc.bestStars || 0)) + " best " + (sc.bestScore > 0 ? P.scoreText(sc.bestScore) + " · " : "") + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · mastered" : "") : "";
   }
   function renderScores() {
     var done = songList.filter(function (s) { return s.score && s.score.fullPlays; }), m = done.filter(function (s) { return s.score.mastered; });
