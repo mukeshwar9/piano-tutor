@@ -129,7 +129,7 @@ async function readJson(req, limit = 64 * 1024) {
   try { return JSON.parse(buf.toString("utf8") || "{}"); } catch { throw new Error("invalid JSON"); }
 }
 
-const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn", "fx", "fxIntensity", "telemetry"];
+const CONTROL_CMDS = ["calibrate", "nudge", "ok", "back", "restart", "pause", "song", "hand", "loop", "listen", "fingers", "progress", "view", "tempo", "speed", "metronome", "metronomeVolume", "countin", "ramp", "rampTarget", "listenAll", "learn", "fx", "fxIntensity", "telemetry", "picker"];
 
 async function pianoPost(url, req, res) {
   let body;

@@ -1215,6 +1215,47 @@
   var HANDS = ["right", "left", "both"];
   function nextHand(hand) { return HANDS[(HANDS.indexOf(hand) + 1) % HANDS.length]; }
 
+  // ---------- the song picker ----------
+
+  var SHOW_FILTERS = ["all", "new", "not3", "mastered"];
+  var SHOW_NAMES = { all: "All", "new": "New", not3: "Not 3\u2605", mastered: "Mastered" };
+
+  // Songs that pass a picker filter: { levels: { 1: true, ... }, show }. No level chosen means every level;
+  // several mean any of them. show: "all"; "new" (never played); "not3" (fewer than three stars, unplayed
+  // ones included); "mastered". scores maps a song id to its best scores (summarizeHistory); songs with
+  // errors are left out. The order of songs is kept.
+  function filterSongs(songs, scores, f) {
+    f = f || {};
+    var levels = f.levels || {}, any = false, k;
+    for (k in levels) if (levels[k]) any = true;
+    return songs.filter(function (s) {
+      if (s.error) return false;
+      if (any && !levels[s.level || levelOf(undefined)]) return false;
+      var sc = scores && scores[s.id];
+      if (f.show === "new") return !(sc && sc.plays);
+      if (f.show === "not3") return !(sc && sc.bestStars >= 3);
+      if (f.show === "mastered") return !!(sc && sc.mastered);
+      return true;
+    });
+  }
+
+  // The song to suggest next: the easiest one never played (the first in the list among equals); when all
+  // have been, the one with the fewest stars (easiest, then first). null when nothing can be played.
+  function suggestSong(songs, scores) {
+    var best = null, bestKey = null;
+    songs.forEach(function (s, i) {
+      if (s.error) return;
+      var sc = scores && scores[s.id], key = sc && sc.plays ? [1, sc.bestStars || 0, s.level || 2, i] : [0, 0, s.level || 2, i];
+      var better = !bestKey;
+      for (var j = 0; j < 4 && !better; j++) {
+        if (key[j] < bestKey[j]) better = true;
+        else if (key[j] > bestKey[j]) break;
+      }
+      if (better) { best = s; bestKey = key; }
+    });
+    return best;
+  }
+
   // ---------- remote focus ----------
 
   // One focused control at a time, moved with the remote's arrows. items are { id, col, row, skip? } placed
@@ -1264,6 +1305,7 @@
 
   return {
     slipsOf: slipsOf, worstPair: worstPair, compactBars: compactBars, weakSpot: weakSpot, latestWeakSpot: latestWeakSpot,
+    SHOW_FILTERS: SHOW_FILTERS, SHOW_NAMES: SHOW_NAMES, filterSongs: filterSongs, suggestSong: suggestSong,
     stepSong: stepSong, levelOf: levelOf, focusMove: focusMove, focusDir: focusDir,
     DAILY_GOAL_MIN: DAILY_GOAL_MIN, PLAY_CAP_MS: PLAY_CAP_MS, dayKey: dayKey, shiftDay: shiftDay, dayStats: dayStats,
     NOTE_POINTS: NOTE_POINTS, COMBO_STEPS: COMBO_STEPS, STAR_ACCURACY: STAR_ACCURACY, comboMultiplier: comboMultiplier,

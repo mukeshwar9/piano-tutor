@@ -150,6 +150,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 @keyframes nudgeup{50%{transform:translateX(.4rem) translateY(-.25rem)}}
 @keyframes nudgedown{50%{transform:translateX(.4rem) translateY(.25rem)}}
 @media (prefers-reduced-motion:reduce){#pause.enter .sheet,#pause li.nudge-up,#pause li.nudge-down{animation:none}#pause li{transition:none}}
+/* Song picker: a rail of filters and the songs as rows; one focused element at a time. */
+#picker{position:absolute;left:0;top:0;width:100%;height:100%;background:var(--bg);z-index:6;display:none;flex-direction:column;padding:1.8rem 3rem}
+#picker.on{display:flex}
+#picker h1{font-size:2.2rem;font-weight:800}
+#picker .sub{font-size:1.05rem;color:var(--txt2);margin-top:.2rem}
+#picker .cols{display:flex;gap:2.5rem;margin-top:1.2rem;flex:1;min-height:0}
+#picker .rail{width:15rem;flex:none}
+#picker .rail .grp{font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin:.9rem 0 .3rem}
+#picker .rail .grp:first-child{margin-top:0}
+#picker .chip{display:block;font-size:1.3rem;font-weight:700;padding:.35rem .9rem;margin:.25rem 0;border-radius:.5rem;border:.12rem solid var(--line2);color:var(--txt2);transition:transform .12s ease}
+#picker .chip.on{background:#14304f;border-color:var(--blue);color:var(--txt)}
+#picker .chip.foc{box-shadow:0 0 0 .2rem rgba(77,163,255,.35);border-color:var(--blue);transform:scale(1.05);transform-origin:left}
+#picker .list{flex:1;min-width:0}
+#picker .more{font-size:.95rem;color:var(--mut);height:1.4rem}
+#picker .row{display:flex;align-items:center;gap:1.4rem;font-size:1.5rem;font-weight:700;padding:.5rem 1rem;margin:.2rem 0;border-radius:.5rem;border:.12rem solid transparent;transition:transform .12s ease}
+#picker .row .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#picker .row .t small{font-size:.95rem;font-weight:600;color:var(--mut);margin-left:.6rem}
+#picker .row .pips{color:var(--blue);letter-spacing:.15em;font-size:1.1rem}
+#picker .row .pips s{color:var(--line2);text-decoration:none}
+#picker .row .st{color:var(--amber);letter-spacing:.1em;width:5rem}
+#picker .row .sc{width:6.5rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--txt2);font-size:1.2rem}
+#picker .row .md{width:7.5rem;font-size:1rem;color:var(--amber)}
+#picker .row.foc{background:#1c2a42;border-color:var(--blue);box-shadow:0 0 0 .2rem rgba(77,163,255,.3);transform:translateX(.5rem)}
+#picker .row.cur .t:after{content:" ·  playing";font-size:.95rem;font-weight:600;color:var(--green)}
+#picker .none{font-size:1.3rem;color:var(--mut);padding:1rem}
+#picker .keys{font-size:.95rem;color:var(--mut)}
+@media (prefers-reduced-motion:reduce){#picker .chip,#picker .row{transition:none}}
 /* Tutorial mode: every text is 1.6rem (32 px on a 1080-tall TV) or bigger. */
 #tutor{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(84rem,94%);background:rgba(19,26,39,.97);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.8rem;display:none;text-align:left}
 body.tutor #tutor{display:block}
@@ -210,6 +237,7 @@ body.tutor #toast{z-index:5}
 <div id="panel"></div>
 <div id="result"></div>
 <div id="pause"></div>
+<div id="picker"></div>
 <div id="progress"></div>
 <div id="tutor"></div>
 <script src="/piano-core.js"></script>
@@ -276,6 +304,7 @@ body.tutor #toast{z-index:5}
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
   var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
   var progressOn = false, history = null;
+  var picker = null;        // the song picker while it is open: { focus, offset, levels, show, wasPaused }
   var pendingPractise = null;  // a weak spot to start once its song has loaded
   var practise = null;      // a weak spot being practised: { song, from, to, before: { wrong, late }, bars, cleared: [[from, to], ...] }
   var pauseSheet = null;    // { focus } while the pause sheet is open (OK in the song view)
@@ -826,7 +855,7 @@ body.tutor #toast{z-index:5}
         if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(function () { loadSong(id); }, 10000); }
         songId = pick.id;
         try { localStorage.setItem("pianoSong", songId); } catch (e) {}
-        closePause(false); practise = null;
+        closePause(false); practise = null; closePicker(false);
         rawSong = s; song = null; session = null; held = {}; loop = null;
         fitSong();
         if (pendingPractise) { var pp = pendingPractise; pendingPractise = null; startPractise(pp.pair, pp.bars); }
@@ -889,7 +918,7 @@ body.tutor #toast{z-index:5}
     if (mode === "cal1") { work.low = n; calNote(); return; }
     if (mode === "cal2") { work.high = n; calNote(); return; }
     if (mode === "cal3" || !session) return;
-    if (progressOn || pauseSheet) return;
+    if (progressOn || pauseSheet || picker) return;
     if (session.done) { restart(); held[n] = true; }
     if (session.tempo && paused) return;
     // Settle the misses up to now first, so the hint for a wrong key points at a note still to come.
@@ -1044,7 +1073,7 @@ body.tutor #toast{z-index:5}
   }
 
   function startCalibration() {
-    closePause(false);
+    closePause(false); closePicker(false);
     cancelListen();
     work = { low: cal.low, high: cal.high, left: cal.left, right: cal.right, screenPx: W, mode: "seat" };
     mode = "cal1"; calWarn = ""; held = {};
@@ -1061,6 +1090,7 @@ body.tutor #toast{z-index:5}
   function ok() {
     if (progressOn) toggleProgress(false);
     else if (resultOn()) resultActivate();
+    else if (picker) pickerActivate();
     else if (mode === "cal1") { mode = "cal2"; calWarn = ""; panel(); }
     else if (mode === "cal2") { mode = "cal3"; calWarn = ""; panel(); }
     else if (mode === "cal3") save();
@@ -1074,6 +1104,7 @@ body.tutor #toast{z-index:5}
   function back() {
     if (progressOn) toggleProgress(false);
     else if (resultOn()) hideResult(true);
+    else if (picker) closePicker(true);
     else if (pauseSheet) closePause(true);
     else if (mode === "cal3") { mode = "cal2"; panel(); }
     else if (mode === "cal2") { mode = "cal1"; panel(); }
@@ -1096,7 +1127,8 @@ body.tutor #toast{z-index:5}
     else if (c.cmd === "ok") ok();
     else if (c.cmd === "back") back();
     else if (c.cmd === "restart") { if (mode !== "play") { mode = "play"; setLayout(cal); } restart(); }
-    else if (c.cmd === "pause" && mode === "play" && !pauseSheet) { paused = !paused; report(); }
+    else if (c.cmd === "picker") { if (mode === "play") openPicker(); }
+    else if (c.cmd === "pause" && mode === "play" && !pauseSheet && !picker) { paused = !paused; report(); }
     else if (c.cmd === "song") { if (mode === "play" && c.id) loadSong(c.id); }
     else if (c.cmd === "hand") setHand(c.id);
     else if (c.cmd === "loop") setLoop(c.from ? { from: c.from, to: c.to || c.from } : null);
@@ -1137,6 +1169,7 @@ body.tutor #toast{z-index:5}
     audioWake();
     if (tutor && tutorKey(e)) return;
     if (pauseSheet && pauseKey(e)) return;
+    if (picker && pickerKey(e)) return;
     if (TVSwitch.isListenKey(e)) {
       e.preventDefault();
       if (!e.repeat) {
@@ -1162,9 +1195,10 @@ body.tutor #toast{z-index:5}
       e.preventDefault();
     }
     else if (k === "Enter" || k === " ") { ok(); e.preventDefault(); }
-    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn || resultOn() || pauseSheet) { back(); e.preventDefault(); } }
+    else if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { if (mode !== "play" || progressOn || resultOn() || pauseSheet || picker) { back(); e.preventDefault(); } }
     else if ((k === "ArrowDown" || k === "c" || k === "C") && mode === "play") { startCalibration(); e.preventDefault(); }
     else if ((k === "e" || k === "E") && mode === "play") { if (!e.repeat) openTutor(); }
+    else if ((k === "a" || k === "A") && mode === "play") { if (!e.repeat) openPicker(); }
     else if ((k === "r" || k === "R") && mode === "play") restart();
     else if ((k === "f" || k === "F") && mode === "play") setFingers("");
     else if ((k === "x" || k === "X") && mode === "play") { if (!e.repeat) setFx(""); }
@@ -1205,7 +1239,7 @@ body.tutor #toast{z-index:5}
   // leave: the songs to go back to with ◀ and ▶ (the neighbours of the tutorial in the song list).
   function openTutor(leave) {
     if (tutor || mode !== "play") return;
-    closePause(false);
+    closePause(false); closePicker(false);
     cancelListen();
     tutorStash = { rawSong: rawSong, origin: songId, leave: leave || { left: songId, right: songId } };
     rawSong = null; song = null; session = null; held = {}; flash = {}; marks = {}; paused = false; loop = null;
@@ -1721,6 +1755,117 @@ body.tutor #toast{z-index:5}
     status();
   }
 
+  // ---------- song picker ----------
+  // All songs with level, stars and best score. A rail of filters (levels 1 to 5, then Show: All, New, Not 3★,
+  // Mastered) beside the songs; the songs scroll past ROWS. ▲ ▼ ◀ ▶ move the one focused element (PianoCore.focusMove),
+  // OK plays a song or switches a filter on or off, Back goes back to the song.
+
+  var PICKER_ROWS = 7;
+  var PICKER_CHIPS = [1, 2, 3, 4, 5].map(function (n) { return { id: "lvl" + n, kind: "level", n: n, label: "Level " + n }; })
+    .concat(P.SHOW_FILTERS.map(function (f) { return { id: "show-" + f, kind: "show", show: f, label: P.SHOW_NAMES[f] }; }));
+
+  function pickerScores() {
+    var out = {};
+    songs.forEach(function (sg) { if (sg.score) out[sg.id] = sg.score; });
+    return out;
+  }
+
+  function pickerList() { return P.filterSongs(songs, pickerScores(), { levels: picker.levels, show: picker.show }); }
+
+  function openPicker() {
+    if (picker || tutor || mode !== "play" || !songs.length) return;
+    cancelListen();
+    var was = pauseSheet ? false : paused;
+    closePause(false);
+    picker = { focus: "", offset: 0, levels: {}, show: "all", wasPaused: was };
+    paused = true;
+    var list = pickerList(), at = -1;
+    list.forEach(function (sg, i) { if (sg.id === songId) at = i; });
+    picker.focus = at >= 0 ? "song:" + list[at].id : list.length ? "song:" + list[0].id : "lvl1";
+    pickerScroll(list);
+    renderPicker();
+    report();
+  }
+
+  // Back (resume true) or choosing a song (false: the song that loads starts afresh).
+  function closePicker(resume) {
+    if (!picker) return;
+    var was = picker.wasPaused;
+    picker = null;
+    $("picker").className = ""; $("picker").innerHTML = "";
+    if (resume) paused = was;
+    lastSide = ""; report();
+  }
+
+  function pickerItems(list) {
+    var items = PICKER_CHIPS.map(function (c, i) { return { id: c.id, col: 0, row: i }; });
+    list.forEach(function (sg, i) { items.push({ id: "song:" + sg.id, col: 1, row: i }); });
+    return items;
+  }
+
+  // Keeps the focused song inside the window of rows.
+  function pickerScroll(list) {
+    var at = -1, off = Math.min(picker.offset, Math.max(0, list.length - PICKER_ROWS));
+    list.forEach(function (sg, i) { if (picker.focus === "song:" + sg.id) at = i; });
+    if (at >= 0 && at < off) off = at;
+    else if (at >= off + PICKER_ROWS) off = at - PICKER_ROWS + 1;
+    picker.offset = Math.max(0, off);
+  }
+
+  function pips(n) { var h = ""; for (var i = 1; i <= 5; i++) h += i <= n ? "●" : "<s>○</s>"; return h; }
+
+  function renderPicker(nudge) {
+    if (!picker) return;
+    var list = pickerList(), el = $("picker"), sc = pickerScores(), h = "";
+    pickerScroll(list);
+    h += '<h1>All songs</h1><div class="sub">' + list.length + (list.length === 1 ? " song" : " songs") + (picker.show !== "all" || Object.keys(picker.levels).some(function (k) { return picker.levels[k]; }) ? " match" : "") + '</div><div class="cols"><div class="rail"><div class="grp">Level</div>';
+    PICKER_CHIPS.forEach(function (c, i) {
+      if (i === 5) h += '<div class="grp">Show</div>';
+      var on = c.kind === "level" ? !!picker.levels[c.n] : picker.show === c.show;
+      h += '<span class="chip' + (on ? " on" : "") + (picker.focus === c.id ? " foc" : "") + '">' + esc(c.label) + "</span>";
+    });
+    h += '</div><div class="list"><div class="more">' + (picker.offset > 0 ? "▲ " + picker.offset + " more" : "") + "</div>";
+    if (!list.length) h += '<div class="none">No songs match these filters.</div>';
+    list.slice(picker.offset, picker.offset + PICKER_ROWS).forEach(function (sg) {
+      var s2 = sc[sg.id];
+      h += '<div class="row' + (picker.focus === "song:" + sg.id ? " foc" : "") + (sg.id === songId ? " cur" : "") + '"><span class="t">' + esc(sg.title || sg.id) + '</span><span class="pips" title="Level ' + (sg.level || 2) + '">' + pips(sg.level || 2) + "</span>" +
+        '<span class="st">' + (s2 && s2.plays ? starsText(s2.bestStars || 0) : "") + '</span><span class="sc">' + (s2 && s2.fullPlays ? P.scoreText(s2.bestScore) : "") + '</span><span class="md">' + (s2 && s2.mastered ? "Mastered" : !(s2 && s2.plays) ? "New" : "") + "</span></div>";
+    });
+    var below = list.length - picker.offset - PICKER_ROWS;
+    h += '<div class="more">' + (below > 0 ? "▼ " + below + " more" : "") + '</div></div></div><div class="keys">▲ ▼ ◀ ▶ move · OK play the song or switch a filter · Back to the song</div>';
+    el.innerHTML = h; el.className = "on";
+  }
+
+  function pickerMove(dir) {
+    var list = pickerList(), m = P.focusMove(pickerItems(list), picker.focus, dir);
+    picker.focus = m.id;
+    renderPicker();
+  }
+
+  function pickerActivate() {
+    var f = picker.focus;
+    if (f.indexOf("song:") === 0) {
+      var id = f.slice(5);
+      closePicker(false);
+      if (id === songId) { restart(); toast(song.title); } else loadSong(id);
+      return;
+    }
+    var chip = PICKER_CHIPS.filter(function (c) { return c.id === f; })[0];
+    if (!chip) return;
+    if (chip.kind === "level") picker.levels[chip.n] = !picker.levels[chip.n];
+    else picker.show = chip.show;
+    renderPicker();
+  }
+
+  function pickerKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    var k = e.key, d = P.focusDir(k);
+    if (d) { if (!e.repeat || d === "up" || d === "down") pickerMove(d); e.preventDefault(); return true; }
+    if (k === "Enter" || k === " ") { e.preventDefault(); if (!e.repeat) pickerActivate(); return true; }
+    if (k === "Escape" || k === "Backspace" || k === "GoBack" || k === "BrowserBack") { e.preventDefault(); if (!e.repeat) closePicker(true); return true; }
+    return false;
+  }
+
   // ---------- pause sheet ----------
   // The LG remote has no play, rewind or fast-forward keys, so OK in the song view opens this sheet with what
   // those keys do: resume, loop this bar, hear it, change hand, restart. ▲ ▼ move, OK chooses, ◀ ▶ change the
@@ -1734,6 +1879,7 @@ body.tutor #toast{z-index:5}
       { id: "hear", label: "Hear this bar", sub: loop ? barsText(loop) : "bar " + bar },
       { id: "hand", label: "Hand", sub: "◀ " + HAND_NAMES[session.hand] + " ▶" },
       { id: "restart", label: "Restart" },
+      { id: "songs", label: "All songs" },
     ];
   }
 
@@ -1785,6 +1931,7 @@ body.tutor #toast{z-index:5}
     else if (id === "hear") { closePause(true); toggleListen(); }
     else if (id === "hand") pauseAdjust(1);
     else if (id === "restart") { closePause(false); restart(); }
+    else if (id === "songs") { closePause(true); openPicker(); }
   }
 
   function pauseKey(e) {
