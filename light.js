@@ -49,6 +49,38 @@ const DEFAULTS = {
   minDimming: 10,         // the bulb's lowest brightness
 };
 
+// Reward cues: short colour moments laid over whatever the light is doing, in the order of how rare they
+// are: a gold wash for a new best, a warm fade when the day's goal is met, green pulses for a clean pass of a
+// practice loop (two, and three on the third clean pass). A cue started while a rarer one is running is dropped.
+// Each is a weight from 0 to 1 over time that mixes its colour into the shown one; the light is still asked
+// for a colour once per tick, so a cue is as many steps as ticks (the gold wash ramps up over four of them).
+const CUE_TICKS = 4;
+const CUES = {
+  best: { priority: 3, color: { h: 45, s: 92, b: 90 }, rampTicks: CUE_TICKS, holdMs: 2000, fallMs: 2500 },
+  goal: { priority: 2, color: { h: 28, s: 75, b: 80 }, rampTicks: 1, holdMs: 0, fallMs: 3000 },
+  clean: { priority: 1, color: { h: 135, s: 90, b: 80 }, pulses: 2, pulseMs: 500, gapMs: 250 },
+  clean3: { priority: 1, color: { h: 135, s: 90, b: 80 }, pulses: 3, pulseMs: 500, gapMs: 250 },
+};
+const CUE_NAMES = Object.keys(CUES);
+
+// Weight (0 to 1) of a cue elapsed ms after it began, and how long it lasts in all.
+function cueLength(c, tickMs) {
+  return c.pulses ? c.pulses * c.pulseMs + (c.pulses - 1) * c.gapMs : c.rampTicks * tickMs + c.holdMs + c.fallMs;
+}
+function cueWeight(c, elapsed, tickMs) {
+  if (elapsed < 0) return 0;
+  if (c.pulses) {
+    const period = c.pulseMs + c.gapMs, k = Math.floor(elapsed / period), t = elapsed - k * period;
+    if (k >= c.pulses || t >= c.pulseMs) return 0;
+    return t < c.pulseMs / 2 ? t / (c.pulseMs / 2) : (c.pulseMs - t) / (c.pulseMs / 2);
+  }
+  const ramp = c.rampTicks * tickMs;
+  if (elapsed < ramp) return elapsed / ramp;
+  if (elapsed < ramp + c.holdMs) return 1;
+  const f = (elapsed - ramp - c.holdMs) / c.fallMs;
+  return f >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * f); // eases back
+}
+
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const wrap = (h) => ((h % 360) + 360) % 360;
 // Shortest signed way from a to b round the hue circle, in (-180, 180].
@@ -98,6 +130,7 @@ function createLight(overrides) {
   const cur = { h: idleOf().h, s: idleOf().s, b: idleOf().b };
   let lastStep = null, lastNoteAt = -Infinity, vel = 0, velTarget = 0, satLP = pal.sat[0];
   let noteMass = 0, noteSum = 0; // decaying weight and weight x note: the mean register
+  let active = null;             // the cue running now: { name, def, t0 }
 
   function noteOn(note, velocity, now) {
     const pc = ((note % 12) + 12) % 12;
@@ -105,6 +138,16 @@ function createLight(overrides) {
     noteMass += o.noteWeight; noteSum += o.noteWeight * note;
     velTarget = clamp((Number(velocity) || 0) / 127, 0, 1);
     lastNoteAt = now;
+  }
+
+  // Start a reward cue (a name in CUES) at `now`. Returns false when it was dropped: unknown, or a rarer
+  // cue is still running. A cue of the same or a lower rank is replaced.
+  function cue(name, now) {
+    const def = CUES[name];
+    if (!def) return false;
+    if (active && now - active.t0 < cueLength(active.def, o.tickMs) && active.def.priority > def.priority) return false;
+    active = { name, def, t0: now };
+    return true;
   }
 
   // Switch palette: the shown colour eases over to the new one like any other change.
@@ -181,12 +224,23 @@ function createLight(overrides) {
     cur.s = ease(cur.s, target.s, rate, capS);
     cur.b = ease(cur.b, target.b, rate, capB);
 
-    const dimming = Math.round(clamp(cur.b, o.minDimming, 100));
-    return { h: cur.h, s: cur.s, b: cur.b, rgb: hsvToRgb(cur.h, cur.s / 100, 1), dimming, silent };
+    // A running cue mixes its colour into what is shown; the colour underneath carries on unchanged.
+    let shown = cur, cueName = "";
+    if (active) {
+      const el = now - active.t0, w = cueWeight(active.def, el, o.tickMs);
+      if (el >= cueLength(active.def, o.tickMs)) active = null;
+      else if (w > 0) {
+        const c = active.def.color;
+        shown = { h: wrap(cur.h + hueDelta(cur.h, c.h) * w), s: cur.s + (c.s - cur.s) * w, b: cur.b + (c.b - cur.b) * w };
+        cueName = active.name;
+      }
+    }
+    const dimming = Math.round(clamp(shown.b, o.minDimming, 100));
+    return { h: shown.h, s: shown.s, b: shown.b, rgb: hsvToRgb(shown.h, shown.s / 100, 1), dimming, silent, cue: cueName };
   }
 
   return {
-    noteOn, seed, step, setPalette, idle: idleOf,
+    noteOn, seed, step, setPalette, cue, idle: idleOf,
     get palette() { return palName; },
     get lastNoteAt() { return lastNoteAt; },
     options: o,
@@ -200,4 +254,4 @@ function changedEnough(last, next) {
   return d >= 3 || Math.abs(last.dimming - next.dimming) >= 1;
 }
 
-module.exports = { DEFAULTS, PALETTES, DEFAULT_PALETTE, createLight, pitchHue, paletteT, hsvToRgb, rgbToHsv, hueDelta, changedEnough };
+module.exports = { DEFAULTS, PALETTES, DEFAULT_PALETTE, CUES, CUE_NAMES, cueWeight, cueLength, createLight, pitchHue, paletteT, hsvToRgb, rgbToHsv, hueDelta, changedEnough };

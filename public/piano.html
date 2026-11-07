@@ -873,10 +873,11 @@ body.tutor #toast{z-index:5}
     if (r.result === "pass") {
       // One time through the loop: say whether it was clean and start the bars again.
       toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
+      if (r.clean) cue("clean");
       clock = session.range.start - LEAD_IN / 2;
       marks = {};
     }
-    if (r.result === "done") { panel(); showResult(); saveResult(); }
+    if (r.result === "done") { panel(); showResult(); saveResult(); if (r.clean) cue("clean3"); }
     report();
   }
 
@@ -1577,6 +1578,11 @@ body.tutor #toast{z-index:5}
     });
   }
 
+  // A reward for the room light (the server decides whether the bulb shows it): "best" a gold wash for a new
+  // best score, "goal" a warm fade when the daily goal is met, "clean" two green pulses for a clean pass of a
+  // practice loop and "clean3" three for the pass that finishes it.
+  function cue(kind) { postJson("/api/piano/cue", { kind: kind }, function () {}); }
+
   // The room light's switch: a small line in the status block, flipped by a click or the B key.
   function lightText() {
     if (!light) return "";
@@ -1733,10 +1739,10 @@ body.tutor #toast{z-index:5}
       var before = prev && prev.fullPlays ? prev.bestScore : 0, fresh = before > 0 && p.score > before;
       html = !before ? '<span class="gold">First score for this song.</span> ' : fresh ? '<span class="gold">New best score!</span> Before: ' + P.scoreText(before) + ". " : "Best " + P.scoreText(sc.bestScore) + ". ";
       html += sc.mastered && !(prev && prev.mastered) ? '<span class="gold">Mastered!</span>' : sc.mastered ? "Mastered." : p.hand !== "both" ? "Play both hands at " + P.MASTER_ACCURACY + "% to master it." : p.accuracy < P.MASTER_ACCURACY ? P.MASTER_ACCURACY + "% in both hands masters it." : "";
-      if (fresh) { $("rcBadge").className = "badge show"; $("result").className = "on best"; }
+      if (fresh) { $("rcBadge").className = "badge show"; $("result").className = "on best"; cue("best"); }
     }
     note.innerHTML = html;
-    if (r && r.today && !r.error) resultGoal(r);
+    if (r && r.today && !r.error) { resultGoal(r); if (r.goalJustMet) cue("goal"); }
   }
 
   // Today's goal under the result: the bar grows from where it was before this play.
@@ -1861,10 +1867,11 @@ body.tutor #toast{z-index:5}
       } else {
         toast(r.clean ? "Clean! " + session.cleanPasses + " of " + session.cleanNeeded : "Not clean · again, 0 of " + session.cleanNeeded);
       }
+      if (r.clean) cue("clean");
       startClock();
       marks = {};
     }
-    if (r.result === "done") { panel(); showResult(); saveResult(); }
+    if (r.result === "done") { panel(); showResult(); saveResult(); if (r.clean) cue("clean3"); }
     if (r.misses.length || r.result) report();
   }
 

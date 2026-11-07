@@ -164,13 +164,13 @@ async function waitForServer() {
     r = await request("POST", "/api/piano/light", { palette: "ocean" });
     assert.strictEqual(r.data.palette, "ocean");
     assert.strictEqual(r.data.enabled, true, "choosing a palette leaves the switch alone");
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, "piano-light.json"), "utf8")), { enabled: true, palette: "ocean" });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, "piano-light.json"), "utf8")), { enabled: true, palette: "ocean", cues: true });
     assert.strictEqual((await request("GET", "/api/piano/light")).data.palette, "ocean");
     assert(link.events.some((e) => e.event === "light" && e.data.palette === "ocean"), "palette is broadcast");
     r = await request("POST", "/api/piano/light", { enabled: false });
     assert.strictEqual(r.data.enabled, false);
     assert.strictEqual(r.data.palette, "ocean", "switching off keeps the palette");
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, "piano-light.json"), "utf8")), { enabled: false, palette: "ocean" });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, "piano-light.json"), "utf8")), { enabled: false, palette: "ocean", cues: true });
     await wait(200);
     const restored = bulbGot[bulbGot.length - 1];
     assert.deepStrictEqual(restored, { method: "setPilot", params: { state: true, r: 9, g: 8, b: 7, dimming: 66 } });
@@ -180,6 +180,18 @@ async function waitForServer() {
     await wait(700);
     assert.strictEqual(bulbGot.length, quiet, "off: nothing is sent");
     assert(link.events.some((e) => e.event === "light" && e.data.enabled === false), "switch is broadcast");
+    // Reward cues: unknown kinds are refused, the switch is saved, off bulbs and off cues show nothing.
+    assert.strictEqual((await request("POST", "/api/piano/cue", { kind: "confetti" })).status, 400);
+    r = await request("POST", "/api/piano/cue", { kind: "best" });
+    assert.deepStrictEqual(r.data, { ok: true, shown: false }, "the bulb is off, so no cue is shown");
+    r = await request("POST", "/api/piano/light", { cues: false });
+    assert.strictEqual(r.data.cues, false);
+    assert.strictEqual(r.data.enabled, false, "the cue switch leaves the light switch alone");
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(dir, "piano-light.json"), "utf8")), { enabled: false, palette: "ocean", cues: false });
+    assert.strictEqual((await request("POST", "/api/piano/light", { cues: "yes" })).status, 400);
+    r = await request("POST", "/api/piano/light", { cues: true, enabled: true });
+    assert.strictEqual(r.data.cues, true);
+    assert.strictEqual((await request("GET", "/api/piano/light")).data.cues, true);
     link.stop();
 
     // Hear it first: a bar is relayed as it comes; the whole song arrives as chunks that keep their place in it.

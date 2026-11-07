@@ -138,6 +138,7 @@ function createBulb(opts) {
   const transport = host ? (o.transport || defaultTransport(host, o.port, o.transportKind)) : null;
 
   let enabled = o.enabled !== false;
+  let cuesOn = o.cues !== false; // reward cues (gold, warm, green) on top of the playing colours
   let wantControl = false;     // notes were played and the bulb should follow them
   let controlling = false;     // the original state is saved and the colour is being sent
   let original = null;         // getPilot result from just before control was taken
@@ -149,7 +150,7 @@ function createBulb(opts) {
   const status = () => !host ? "no-bulb" : !enabled ? "off"
     : reachable ? (controlling ? "active" : "ready")
     : failed ? "not-found" : "searching";
-  const info = () => ({ enabled, configured: !!host, status: status(), palette: color.palette, palettes: Object.keys(light.PALETTES) });
+  const info = () => ({ enabled, configured: !!host, status: status(), palette: color.palette, palettes: Object.keys(light.PALETTES), cues: cuesOn });
   function report() {
     const s = JSON.stringify(info());
     if (s !== reported) { reported = s; if (o.onChange) { try { o.onChange(info()); } catch {} } }
@@ -208,6 +209,24 @@ function createBulb(opts) {
     wantControl = true;
   }
 
+  // A reward cue (light.CUE_NAMES) for the bulb to show over the colours. Like a note it takes the bulb over
+  // when it was not following yet. False when cues are off, the bulb is off or a rarer cue is running.
+  function cue(name) {
+    if (!host || !enabled || !cuesOn) return false;
+    const t = now();
+    if (!color.cue(name, t)) return false;
+    lastNoteAt = t;
+    if (!wantControl) lastGet = -Infinity;
+    wantControl = true;
+    return true;
+  }
+
+  function setCues(on) {
+    cuesOn = !!on;
+    report();
+    return info();
+  }
+
   function tick(t = now()) {
     if (!host || !enabled) return;
     if (pendingSince != null && t - pendingSince > o.replyTimeoutMs) {
@@ -260,7 +279,7 @@ function createBulb(opts) {
     if (transport && transport.close) schedule(() => transport.close(), Math.max(0, ...o.restoreRepeatMs) + 100);
   }
 
-  return { noteOn, tick, setEnabled, setPalette, start, stop, info, get enabled() { return enabled; } };
+  return { noteOn, cue, setCues, tick, setEnabled, setPalette, start, stop, info, get enabled() { return enabled; } };
 }
 
 module.exports = { createBulb, restoreParams, udpTransport, ncTransport, jsonSplitter, DEFAULTS, WIZ_PORT };

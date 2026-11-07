@@ -270,6 +270,11 @@ details.more>.body{padding:0 1.1rem 1rem}
       <select id="lightPalette" aria-label="Palette"></select></div>
       <div class="note ctl full" id="lightStatus"></div>
     </div>
+    <div class="set">
+      <div class="name">Reward cues</div>
+      <div class="ctl"><button id="bCues" class="tog" role="switch" aria-checked="true">On</button></div>
+      <div class="note ctl full">A gold wash for a new best score, a warm glow when the day's goal is met, and green pulses for each clean pass of a practice loop. Off leaves only the colours that follow your playing.</div>
+    </div>
     <div class="note">The bulb follows what you play: slow colours, from the palette you choose, that blend chords and fade to a warm glow when you stop. Turning it off puts the bulb back as it was.</div>
   </div>
 </details>
@@ -485,11 +490,13 @@ details.more>.body{padding:0 1.1rem 1rem}
   $("drop").addEventListener("drop", function (e) { e.preventDefault(); $("drop").className = "card"; upload(e.dataTransfer.files[0]); });
   function markSong() { if (tvState && tvState.songId) $("songs").value = tvState.songId; }
 
-  var lightOn = true, lightPalettes = "";
+  var lightOn = true, lightCues = true, lightPalettes = "";
   function showLight(l) {
-    lightOn = l.enabled;
+    lightOn = l.enabled; lightCues = l.cues !== false;
     toggle($("bLight"), l.enabled);
     $("bLight").disabled = l.status === "no-bulb";
+    toggle($("bCues"), lightCues);
+    $("bCues").disabled = l.status === "no-bulb";
     if (l.palettes && lightPalettes !== l.palettes.join()) {
       lightPalettes = l.palettes.join();
       $("lightPalette").innerHTML = l.palettes.map(function (n) { return '<option value="' + n + '">' + n.charAt(0).toUpperCase() + n.slice(1) + "</option>"; }).join("");
@@ -501,6 +508,10 @@ details.more>.body{padding:0 1.1rem 1rem}
   }
   $("lightPalette").onchange = function () {
     fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ palette: $("lightPalette").value }) })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) showLight(d); }).catch(function () {});
+  };
+  $("bCues").onclick = function () {
+    fetch("/api/piano/light", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cues: !lightCues }) })
       .then(function (r) { return r.json(); }).then(function (d) { if (d && d.status) showLight(d); }).catch(function () {});
   };
   $("bLight").onclick = function () {

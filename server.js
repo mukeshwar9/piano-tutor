@@ -45,7 +45,7 @@ function readLight() {
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(config.pianoLight, "utf8")) || {}; } catch {}
   const palette = [saved.palette, config.bulb.palette].find((p) => typeof p === "string" && lightColor.PALETTES[p]) || lightColor.DEFAULT_PALETTE;
-  return { enabled: typeof saved.enabled === "boolean" ? saved.enabled : config.bulb.enabled !== false, palette };
+  return { enabled: typeof saved.enabled === "boolean" ? saved.enabled : config.bulb.enabled !== false, palette, cues: typeof saved.cues === "boolean" ? saved.cues : config.bulb.cues !== false };
 }
 const lightSaved = readLight();
 const bulb = bulbLight.createBulb({
@@ -54,6 +54,7 @@ const bulb = bulbLight.createBulb({
   transportKind: config.bulb.transport === "udp" || config.bulb.transport === "nc" ? config.bulb.transport : undefined,
   enabled: lightSaved.enabled,
   palette: lightSaved.palette,
+  cues: lightSaved.cues,
   onChange: (info) => broadcast("light", info),
 });
 
@@ -244,16 +245,25 @@ async function pianoPost(url, req, res) {
     return json(res, 200, { ok: true, play, score, previous: before, today, goalJustMet });
   }
   if (url === "/api/piano/light") {
-    // { enabled?: true | false, palette?: "spectrum" | ... }: the room light's switch and palette.
-    // Saved, so they survive a restart.
-    const hasEnabled = body.enabled !== undefined, hasPalette = body.palette !== undefined;
-    if (!hasEnabled && !hasPalette) return json(res, 400, { error: "enabled or palette is required" });
+    // { enabled?: true | false, palette?: "spectrum" | ..., cues?: true | false }: the room light's switch,
+    // palette and the switch for its reward cues. Saved, so they survive a restart.
+    const hasEnabled = body.enabled !== undefined, hasPalette = body.palette !== undefined, hasCues = body.cues !== undefined;
+    if (!hasEnabled && !hasPalette && !hasCues) return json(res, 400, { error: "enabled, palette or cues is required" });
     if (hasEnabled && typeof body.enabled !== "boolean") return json(res, 400, { error: "enabled must be true or false" });
+    if (hasCues && typeof body.cues !== "boolean") return json(res, 400, { error: "cues must be true or false" });
     if (hasPalette && !lightColor.PALETTES[body.palette]) return json(res, 400, { error: "unknown palette" });
     if (hasPalette) bulb.setPalette(body.palette);
+    if (hasCues) bulb.setCues(body.cues);
     const info = hasEnabled ? bulb.setEnabled(body.enabled) : bulb.info();
-    try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled, palette: info.palette }) + "\n"); } catch {}
+    try { fs.writeFileSync(config.pianoLight, JSON.stringify({ enabled: info.enabled, palette: info.palette, cues: info.cues }) + "\n"); } catch {}
     return json(res, 200, info);
+  }
+  if (url === "/api/piano/cue") {
+    // { kind: "best" | "goal" | "clean" | "clean3" }: a reward for the room light, from the TV page: a gold
+    // wash (new best), a warm fade (goal met), two green pulses (clean pass) or three (the third in a row).
+    // shown says whether the bulb will show it (cues on, bulb on, no rarer cue running).
+    if (!lightColor.CUE_NAMES.includes(body.kind)) return json(res, 400, { error: "unknown cue" });
+    return json(res, 200, { ok: true, shown: bulb.cue(body.kind) });
   }
   if (url === "/api/piano/progress") {
     // Tutorial progress from the TV: { lesson, action: "step" | "attempt" | "pass", step?, score? }.

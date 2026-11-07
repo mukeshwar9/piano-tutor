@@ -42,7 +42,7 @@ function rig(opts = {}) {
 {
   const b = createBulb({ host: "", now: () => 0 });
   b.noteOn(60, 90); b.tick(0); b.start(); b.stop();
-  assert.deepStrictEqual(b.info(), { enabled: true, configured: false, status: "no-bulb", palette: "spectrum", palettes: ["spectrum", "aurora", "sunset", "ocean", "warm"] });
+  assert.deepStrictEqual(b.info(), { enabled: true, configured: false, status: "no-bulb", palette: "spectrum", palettes: ["spectrum", "aurora", "sunset", "ocean", "warm"], cues: true });
 }
 
 // Before a note nothing is changed on the bulb: it is only asked for its state, rarely.
