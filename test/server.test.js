@@ -126,6 +126,14 @@ async function waitForServer() {
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.goalMet, true);
     assert.strictEqual(r.data.calendar.length, 4);
+    // Per-bar slips in a whole-song play become the weak spot to practise; a finished loop over them clears it.
+    assert.strictEqual(r.data.weak, null);
+    await request("POST", "/api/piano/history", { song: "ode-to-joy", hand: "both", accuracy: 80, bestStreak: 5, correct: 30, wrong: 6, durationMs: 60000, bars: { 3: [3, 1], 4: [1, 0], 9: [1, 0] } });
+    r = await request("GET", "/api/piano/today");
+    assert.deepStrictEqual(r.data.weak, { song: "ode-to-joy", from: 3, to: 4, wrong: 4, late: 1, total: 5, at: r.data.weak.at });
+    await request("POST", "/api/piano/history", { song: "ode-to-joy", hand: "both", accuracy: 100, bestStreak: 8, correct: 16, wrong: 0, durationMs: 30000, loop: { from: 3, to: 4 } });
+    r = await request("GET", "/api/piano/today");
+    assert.strictEqual(r.data.weak.from, 8, "the next worst pair: bar 9 with the bar before it");
 
     // The relay: link page notes reach the TV; the wall, on another origin, hears switch requests.
     const tv = listen("tv"), wall = listen("wall");

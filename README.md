@@ -101,6 +101,10 @@ Every note struck right scores 100 times a combo multiplier (x1, then x2 at 10 n
 
 The daily goal is 10 minutes of any playing a day (whole songs, loops and practice; one play counts for at most 30 minutes) and the day streak is the days in a row with any play at all, kept through a day not yet played. Both are worked out from `piano-history.json` in the server's local days (`GET /api/piano/today`, and in the reply to each finished play), so nothing else is stored. The song view shows the goal bar and the streak; the progress screen adds the longest run, minutes this week, the mastered count and a four-week calendar.
 
+## Weak spots
+
+Every play counts its slips per bar: a wrong key or a missed note, and (in tempo mode) a note struck early or late. A finished whole-song play saves the bars that slipped with the play in `piano-history.json`. The results card shows them as a "Where it slipped" strip, with a bracket on the worst two neighbouring bars and a Practise bars 5-6 button that loops them (the usual practice loop: three clean passes in a row, green pulses on the room light). When the loop is done a Practised card compares the wrong keys and off-beat notes before and after, shows the tries and the time, and offers the next weak spot. The weak spot is always worked out from the history: the worst pair of bars from the latest whole-song play of a song, leaving out bars a finished loop has practised since (`weak` in `GET /api/piano/today`, which also picks the song played through most recently that still has one).
+
 ## The pause sheet
 
 The LG remote has no Play-Pause, Rewind or Fast-Forward keys, so OK in the song view opens a pause sheet with what those keys do: Resume, Practise this bar (or Stop looping), Hear this bar, Hand (◀ ▶ change it) and Restart. ▲ ▼ move the focus, OK chooses, Back resumes. The song is paused behind it and keys played on the keyboard are ignored until it closes.

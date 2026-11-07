@@ -35,7 +35,7 @@ assert.deepStrictEqual(P.playRecord(song, ls, {}).loop, { from: 1, to: 2 });
 // Validation: clean values, bad input rejected.
 const good = { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.44, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1, bogus: 3, D4: 0 }, durationMs: 1234.6 };
 const v = P.validPlay(good);
-assert.deepStrictEqual(v, { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.4, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1 }, score: 0, durationMs: 1235, timing: null, at: 0 });
+assert.deepStrictEqual(v, { song: "a", title: "A", hand: "both", mode: "tempo", speed: 0.75, loop: null, accuracy: 96.4, bestStreak: 20, correct: 30, wrong: 1, wrongKeys: { C4: 1 }, score: 0, bars: {}, durationMs: 1235, timing: null, at: 0 });
 assert.strictEqual(P.validPlay({ ...good, mode: "weird" }).mode, "wait", "unknown mode falls back to wait");
 assert.strictEqual(P.validPlay({ ...good, speed: 0 }).speed, 1);
 for (const bad of [null, "x", { ...good, song: "" }, { ...good, hand: "feet" }, { ...good, accuracy: 101 }, { ...good, accuracy: "x" }, { ...good, loop: { from: 0, to: 1 } }, { ...good, wrong: -1 }]) {

@@ -252,6 +252,93 @@
     return { from: from, to: to };
   }
 
+  // ---------- where it slipped ----------
+
+  // Sessions count slips per bar: a wrong key or a missed note is "wrong", a note struck early or late "late".
+  // s.slip(beat, kind) adds one to the bar holding that beat, for the whole play and for the current loop pass.
+  function slipper(s, song) {
+    return function (beat, kind) {
+      var bar = barOf(song, beat);
+      [s.bars, s.passBars].forEach(function (m) {
+        var b = m[bar] || (m[bar] = { wrong: 0, late: 0 });
+        b[kind]++;
+      });
+    };
+  }
+
+  // A bar's slips from a session's { wrong, late } or a record's [wrong, late].
+  function slipsOf(v) {
+    if (!v) return { wrong: 0, late: 0 };
+    return Array.isArray(v) ? { wrong: v[0] || 0, late: v[1] || 0 } : { wrong: v.wrong || 0, late: v.late || 0 };
+  }
+
+  // The worst two bars side by side, from a map of bar -> slips, in a song of count bars (or as far as the
+  // map reaches): { from, to, wrong, late, total }. The earlier pair wins a tie; a song of one bar gives that
+  // bar; null when nothing slipped.
+  function worstPair(bars, count) {
+    var n = count || 0, k;
+    if (!count) for (k in bars) n = Math.max(n, Number(k));
+    if (n < 1) return null;
+    var best = null;
+    for (var b = 1; b <= Math.max(1, n - 1); b++) {
+      var to = Math.min(n, b + 1), a = slipsOf(bars[b]), c = b === to ? { wrong: 0, late: 0 } : slipsOf(bars[to]);
+      var total = a.wrong + a.late + c.wrong + c.late;
+      if (total > 0 && (!best || total > best.total)) best = { from: b, to: to, wrong: a.wrong + c.wrong, late: a.late + c.late, total: total };
+    }
+    return best;
+  }
+
+  // The bars with slips as stored in a play: { "5": [wrong, late], ... }.
+  function compactBars(bars) {
+    var out = {};
+    for (var k in bars) { var v = slipsOf(bars[k]); if (v.wrong || v.late) out[k] = [v.wrong, v.late]; }
+    return out;
+  }
+
+  function validBars(x) {
+    var out = {};
+    if (!x || typeof x !== "object") return out;
+    Object.keys(x).slice(0, 400).forEach(function (k) {
+      var bar = Math.floor(Number(k)), v = x[k];
+      if (!(bar >= 1 && bar <= 9999) || !Array.isArray(v)) return;
+      var w = Math.floor(Number(v[0])), l = Math.floor(Number(v[1]));
+      if (w >= 0 && l >= 0 && w + l > 0) out[bar] = [Math.min(w, 9999), Math.min(l, 9999)];
+    });
+    return out;
+  }
+
+  // What to practise next in a song: the worst pair of bars from its latest whole-song play, leaving out
+  // the bars practised (a finished loop, which needs clean passes) since then. plays are oldest first, count
+  // is the song's bars. null when that play had no slips or the song has not been played through.
+  function weakSpot(plays, songId, count) {
+    var last = -1, i;
+    for (i = plays.length - 1; i >= 0 && last < 0; i--) if (plays[i].song === songId && !plays[i].loop) last = i;
+    if (last < 0) return null;
+    var left = {}, k;
+    for (k in plays[last].bars || {}) left[k] = plays[last].bars[k];
+    for (i = last + 1; i < plays.length; i++) {
+      var p = plays[i];
+      if (p.song !== songId || !p.loop) continue;
+      for (var b = p.loop.from; b <= p.loop.to; b++) delete left[b];
+    }
+    var w = worstPair(left, count);
+    return w && { song: songId, from: w.from, to: w.to, wrong: w.wrong, late: w.late, total: w.total, at: plays[last].at };
+  }
+
+  // The weak spot of the song played through most recently that has one. counts maps a song id to its bars;
+  // songs not in it (deleted) are left out.
+  function latestWeakSpot(plays, counts) {
+    var seen = {};
+    for (var i = plays.length - 1; i >= 0; i--) {
+      var id = plays[i].song;
+      if (seen[id] || plays[i].loop || !counts[id]) continue;
+      seen[id] = true;
+      var w = weakSpot(plays, id, counts[id]);
+      if (w) return w;
+    }
+    return null;
+  }
+
   // ---------- wait mode ----------
 
   // Song clock in beats: it runs at tempo but never passes the step still waiting for keys.
@@ -338,6 +425,9 @@
       score: 0,
       lastWrong: null,
       wrongKeys: {},
+      bars: {},        // bar -> { wrong, late } over the whole play: where it slipped
+      passBars: {},    // the same for the pass in progress of a loop
+      lastPass: {},    // ...and for the loop pass that just ended
       passes: 0,
       passWrong: 0,
       cleanPasses: 0,
@@ -346,6 +436,7 @@
       tolerant: !!opts.tolerant,
     };
     s.setTolerant = function (on) { s.tolerant = !!on; };
+    s.slip = slipper(s, song);
     s.current = function () { return s.done ? null : steps[s.index]; };
     // The notes a step needs: all of them, or in mic mode only the top one.
     function needed(st) { return s.tolerant ? [Math.max.apply(null, st.notes)] : st.notes; }
@@ -395,6 +486,7 @@
         if (s.index < steps.length) return { result: "advance", step: s.index };
         if (!loop) { s.done = true; return { result: "done" }; }
         var clean = s.passWrong === 0;
+        s.lastPass = s.passBars; s.passBars = {};
         s.passes++; s.passWrong = 0; s.index = 0;
         s.cleanPasses = clean ? s.cleanPasses + 1 : 0;
         if (s.cleanPasses >= LOOP_CLEAN) { s.done = true; return { result: "done", clean: true }; }
@@ -407,6 +499,7 @@
         if (prev && same(note, needed(prev)[0])) return { result: "ignored", ringing: true };
       }
       s.wrong++; s.passWrong++; s.streak = 0;
+      s.slip(steps[s.index].start, "wrong");
       s.wrongKeys[note] = (s.wrongKeys[note] || 0) + 1;
       var want = s.waitingFor(), target = want[0];
       for (var i = 1; i < want.length; i++) if (Math.abs(want[i] - note) < Math.abs(target - note)) target = want[i];
@@ -415,6 +508,7 @@
     };
     s.restart = function () {
       s.index = 0; s.hit = {}; s.correct = 0; s.wrong = 0; s.streak = 0; s.bestStreak = 0; s.score = 0; s.lastWrong = null; s.wrongKeys = {};
+      s.bars = {}; s.passBars = {}; s.lastPass = {};
       s.passes = 0; s.passWrong = 0; s.cleanPasses = 0;
       s.done = steps.length === 0;
     };
@@ -526,6 +620,7 @@
       tolerant: !!opts.tolerant,
     };
     s.setTolerant = function (on) { s.tolerant = !!on; };
+    s.slip = slipper(s, song);
     // The speed ramp raises the speed between loop passes: the clock and the timing windows follow it.
     s.setSpeed = function (pct) {
       speed = clampSpeed(pct);
@@ -581,6 +676,7 @@
         s.lastTiming = { timing: timing, ms: Math.round(d * beatMs) };
         s.offsetMsSum += s.lastTiming.ms;
         s.score += notePoints(s.streak, s.lastTiming.ms);
+        if (timing !== "on time") s.slip(notes[best].start, "late");
         s.lastWrong = null;
         return { result: "hit", timing: timing, ms: s.lastTiming.ms };
       }
@@ -592,6 +688,8 @@
       }
       if (otherSounding(other, note, beat, win, same)) return { result: "ignored", other: true };
       s.wrong++; s.passWrong++; s.streak = 0;
+      var due = s.current();
+      s.slip(due ? due.start : beat, "wrong");
       s.wrongKeys[note] = (s.wrongKeys[note] || 0) + 1;
       var want = s.waitingFor(), target = want.length ? want[0] : note;
       for (var w = 1; w < want.length; w++) if (Math.abs(want[w] - note) < Math.abs(target - note)) target = want[w];
@@ -607,12 +705,14 @@
         if (pending(j) && notes[j].start + win < beat) {
           s.judged[idx[j]] = "miss";
           s.missed++; s.passMissed++; s.streak = 0;
+          s.slip(notes[j].start, "wrong");
           misses.push(notes[j].note);
         }
       }
       if (!(beat > finish)) return { misses: misses };
       if (!loop) { s.done = true; return { misses: misses, result: "done" }; }
       var clean = s.passWrong === 0 && s.passMissed === 0;
+      s.lastPass = s.passBars; s.passBars = {};
       s.passes++; s.passWrong = 0; s.passMissed = 0; s.judged = {};
       s.cleanPasses = clean ? s.cleanPasses + 1 : 0;
       if (s.cleanPasses >= LOOP_CLEAN) { s.done = true; return { misses: misses, result: "done", clean: true }; }
@@ -627,6 +727,7 @@
     s.restart = function () {
       s.judged = {}; s.correct = 0; s.wrong = 0; s.missed = 0; s.onTime = 0; s.early = 0; s.late = 0;
       s.streak = 0; s.bestStreak = 0; s.score = 0; s.lastWrong = null; s.lastTiming = null; s.wrongKeys = {}; s.offsetMsSum = 0;
+      s.bars = {}; s.passBars = {}; s.lastPass = {};
       s.passes = 0; s.passWrong = 0; s.passMissed = 0; s.cleanPasses = 0;
       s.done = notes.length === 0;
     };
@@ -977,6 +1078,7 @@
       accuracy: Math.round(session.accuracy() * 1000) / 10, bestStreak: session.bestStreak,
       correct: session.correct, wrong: session.wrong, wrongKeys: wrongKeys,
       score: Math.max(0, Math.round(session.score || 0)),
+      bars: compactBars(session.bars || {}),
       durationMs: Math.max(0, Math.round(extra.durationMs || 0)),
       timing: timingSummary(session),
     };
@@ -1009,6 +1111,7 @@
       loop: loop, accuracy: Math.round(accuracy * 10) / 10, bestStreak: Math.floor(streak),
       correct: Math.floor(correct), wrong: Math.floor(wrong), wrongKeys: wrongKeys,
       score: Math.min(1e9, Math.max(0, Math.floor(Number(r.score) || 0))),
+      bars: validBars(r.bars),
       durationMs: Math.min(86400000, Math.max(0, Math.round(Number(r.durationMs) || 0))),
       timing: r.mode === "tempo" ? validTiming(r.timing) : null,
       at: Number(r.at) > 0 ? Math.floor(Number(r.at)) : 0,
@@ -1160,6 +1263,7 @@
   }
 
   return {
+    slipsOf: slipsOf, worstPair: worstPair, compactBars: compactBars, weakSpot: weakSpot, latestWeakSpot: latestWeakSpot,
     stepSong: stepSong, levelOf: levelOf, focusMove: focusMove, focusDir: focusDir,
     DAILY_GOAL_MIN: DAILY_GOAL_MIN, PLAY_CAP_MS: PLAY_CAP_MS, dayKey: dayKey, shiftDay: shiftDay, dayStats: dayStats,
     NOTE_POINTS: NOTE_POINTS, COMBO_STEPS: COMBO_STEPS, STAR_ACCURACY: STAR_ACCURACY, comboMultiplier: comboMultiplier,

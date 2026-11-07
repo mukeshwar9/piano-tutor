@@ -172,10 +172,15 @@ function addPlay(file, input, now = Date.now()) {
   return play;
 }
 
-// Today's goal and the day streak from the history (see core.dayStats).
-function todayStats(file, now = Date.now()) { return core.dayStats(readHistory(file), now); }
+// Where the player is today: the goal and day streak from the history (see core.dayStats) and the weak
+// spot to practise next, the worst pair of bars of the song played through most recently that has one.
+function todayInfo(historyFile, songsDir, now = Date.now()) {
+  const plays = readHistory(historyFile), counts = {};
+  for (const s of loadSongs(songsDir)) if (!s.error) counts[s.id] = core.barCount(s);
+  return { ...core.dayStats(plays, now), weak: core.latestWeakSpot(plays, counts) };
+}
 
 // Best scores keyed by song id (see core.summarizeHistory).
 function historySummary(file) { return core.summarizeHistory(readHistory(file)); }
 
-module.exports = { core, loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration, readHistory, addPlay, historySummary, todayStats, MAX_PLAYS };
+module.exports = { core, loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration, readHistory, addPlay, historySummary, todayInfo, MAX_PLAYS };

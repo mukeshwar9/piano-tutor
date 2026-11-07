@@ -106,13 +106,27 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #result p{font-size:1rem;color:var(--txt2);line-height:1.45;margin-top:.2rem}
 #result p b,#result .gold{color:var(--amber)}
 #result .warn{color:var(--amber)}
+#result .slipwrap{position:relative;margin:.6rem 0 0;padding-bottom:1.7rem;text-align:left}
+#result .slipwrap .lbl{display:block;font-size:.8rem;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin-bottom:.3rem}
+#result .slipstrip{display:flex;gap:2px;align-items:flex-end;height:3rem}
+#result .slipstrip i{flex:1;height:calc(var(--h) * 3rem);background:var(--line2);border-radius:2px 2px 0 0;transform-origin:bottom}
+#result .slipstrip i.w{background:var(--amber)}
+#result .slipstrip i.ok{background:var(--green)}
+#result .slipstrip i.w,#result .slipstrip i.ok{animation:rcrise .5s ease-out both;animation-delay:calc(var(--i) * 30ms + 1s)}
+#result .bracket{position:absolute;bottom:.1rem;height:.7rem;border:.15rem solid var(--amber);border-top:none;border-radius:0 0 .3rem .3rem;animation:rcbracket 1.2s ease-in-out 1.8s 2}
+#result .bracket span{position:absolute;top:.6rem;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:.85rem;font-weight:700;color:var(--amber)}
+#result .cmp{display:grid;grid-template-columns:1fr auto;gap:.2rem 2rem;max-width:22rem;margin:.6rem auto .2rem;font-size:1.15rem;text-align:left}
+#result .cmp b{text-align:right;color:var(--txt)}
+#result .cmp b.good{color:var(--green)}
 #result .acts{display:flex;justify-content:center;gap:.8rem;margin-top:.9rem}
 .act{min-width:9rem;padding:.5rem 1.2rem;border-radius:.6rem;border:.12rem solid var(--line2);background:var(--card);color:var(--txt);font-size:1.2rem;font-weight:700;transition:transform .12s ease,box-shadow .12s ease}
 .act.foc{background:#1c2a42;border-color:var(--blue);box-shadow:0 0 0 .2rem rgba(77,163,255,.35);transform:translateY(-.3rem)}
 @keyframes rcpop{0%{opacity:0;transform:scale(.3) rotate(-18deg)}70%{opacity:1;transform:scale(1.2) rotate(4deg)}100%{opacity:1;transform:none}}
+@keyframes rcrise{from{opacity:0;transform:scaleY(0)}to{opacity:1;transform:none}}
+@keyframes rcbracket{0%,100%{opacity:1}50%{opacity:.25}}
 @keyframes rcflash{0%{opacity:0}30%{opacity:1}100%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){
-  #result .stars i.full,#result.best::after{animation:none}
+  #result .stars i.full,#result.best::after,#result .slipstrip i.w,#result .slipstrip i.ok,#result .bracket{animation:none}
   #result.best::after{opacity:.6}
   #result .badge,.act{transition:none}
   #result .badge.show{transform:none}
@@ -262,6 +276,8 @@ body.tutor #toast{z-index:5}
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
   var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
   var progressOn = false, history = null;
+  var pendingPractise = null;  // a weak spot to start once its song has loaded
+  var practise = null;      // a weak spot being practised: { song, from, to, before: { wrong, late }, bars, cleared: [[from, to], ...] }
   var pauseSheet = null;    // { focus } while the pause sheet is open (OK in the song view)
   var today = null;         // the day's goal and streak from the server (see PianoCore.dayStats), null until it arrives
   var view = rememberedView();        // notes | both | sheet
@@ -764,6 +780,8 @@ body.tutor #toast{z-index:5}
   function setLoop(l) {
     if (mode !== "play" || !song) return;
     loop = l && l.from ? l : null;
+    // Practising a weak spot ends when its bars are left or the loop is stopped.
+    if (practise && (!loop || loop.from !== practise.from || loop.to !== practise.to || practise.song !== songId)) practise = null;
     newSession();
     toast(loop ? "Loop " + barsText(loop) + " · " + session.cleanNeeded + " clean in a row" : "Loop off");
   }
@@ -808,9 +826,10 @@ body.tutor #toast{z-index:5}
         if (err2) { $("title").textContent = "Song failed to load"; return setTimeout(function () { loadSong(id); }, 10000); }
         songId = pick.id;
         try { localStorage.setItem("pianoSong", songId); } catch (e) {}
-        closePause(false);
+        closePause(false); practise = null;
         rawSong = s; song = null; session = null; held = {}; loop = null;
         fitSong();
+        if (pendingPractise) { var pp = pendingPractise; pendingPractise = null; startPractise(pp.pair, pp.bars); }
         var sc = scoreOf(songId);
         if (id) toast(s.title + (sc && sc.fullPlays ? " · best " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " ★" : "") : ""));
       });
@@ -1792,8 +1811,12 @@ body.tutor #toast{z-index:5}
   function resultOn() { return !!(result && !result.hidden && session && session.done && mode === "play" && !tutor); }
 
   function showResult() {
-    var actions = loop ? [{ id: "again", label: "Loop again" }, { id: "stop", label: "Stop looping" }, { id: "nextbar", label: "Next bar" }] : [{ id: "again", label: "Play again" }, { id: "next", label: "Next song" }];
-    result = { session: session, focus: 0, actions: actions, hidden: false, durationMs: Date.now() - (playStart || Date.now()) };
+    var weak = !loop ? P.worstPair(session.bars, P.barCount(song)) : null, cleared = loop && practiseActive();
+    var actions = cleared ? [{ id: "whole", label: "Play the whole song" }, { id: "again", label: "Loop again" }]
+      : loop ? [{ id: "again", label: "Loop again" }, { id: "stop", label: "Stop looping" }, { id: "nextbar", label: "Next bar" }]
+      : (weak ? [{ id: "practise", label: "Practise " + barsText(weak), pair: weak }] : []).concat([{ id: "again", label: "Play again" }, { id: "next", label: "Next song" }]);
+    result = { session: session, focus: 0, actions: actions, hidden: false, weak: weak, cleared: cleared, durationMs: Date.now() - (playStart || Date.now()) };
+    if (cleared) practise.cleared.push([practise.from, practise.to]);
     var el = $("result");
     el.innerHTML = resultHtml();
     el.className = "on";
@@ -1808,7 +1831,43 @@ body.tutor #toast{z-index:5}
     $("result").className = "";
   }
 
+  // The bars of the song as a strip: how much each slipped, the worst pair bracketed, cleared bars green.
+  function stripHtml(bars, pair, cleared) {
+    var n = P.barCount(song), max = 1, b, h = "";
+    for (b = 1; b <= n; b++) { var v = P.slipsOf(bars[b]); max = Math.max(max, v.wrong + v.late); }
+    h += '<div class="slipwrap"><span class="lbl">' + (cleared ? "Bars practised" : "Where it slipped") + '</span><div class="slipstrip">';
+    for (b = 1; b <= n; b++) {
+      var t = P.slipsOf(bars[b]), total = t.wrong + t.late, isClear = cleared && cleared[b];
+      h += '<i class="' + (isClear ? "ok" : total ? "w" : "") + '" style="--h:' + (isClear ? 0.4 : total ? (0.25 + 0.75 * total / max).toFixed(2) : 0.1) + ";--i:" + b + '"></i>';
+    }
+    h += "</div>";
+    if (pair) h += '<div class="bracket" style="left:' + ((pair.from - 1) / n * 100).toFixed(2) + "%;width:" + ((pair.to - pair.from + 1) / n * 100).toFixed(2) + '%"><span>' + esc(barsText(pair)) + "</span></div>";
+    return h + "</div>";
+  }
+
+  function slipSum(m) {
+    var out = { wrong: 0, late: 0 };
+    for (var k in m) { var v = P.slipsOf(m[k]); out.wrong += v.wrong; out.late += v.late; }
+    return out;
+  }
+
+  // True while the loop on screen is the weak spot being practised.
+  function practiseActive() { return !!(practise && loop && practise.song === songId && loop.from === practise.from && loop.to === practise.to); }
+
+  // The card for a finished practice of a weak spot: what changed from the play that showed it.
+  function clearedHtml() {
+    var before = practise.before, after = slipSum(session.lastPass), cl = {};
+    practise.cleared.forEach(function (r) { for (var b = r[0]; b <= r[1]; b++) cl[b] = true; });
+    var h = "<div class=step>Practised</div><h1>" + esc(barsText(loop).replace(/^b/, "B")) + " cleared!</h1>";
+    h += '<div class="cmp"><span>Wrong keys</span><b class="' + (after.wrong < before.wrong ? "good" : "") + '">' + before.wrong + " → " + after.wrong + "</b>";
+    if (before.late || after.late) h += '<span>Off the beat</span><b class="' + (after.late < before.late ? "good" : "") + '">' + before.late + " → " + after.late + "</b>";
+    h += "<span>Tries</span><b>" + session.passes + "</b><span>Practice time</span><b>+" + (Math.round(result.durationMs / 6000) / 10) + " min</b></div>";
+    if (practise.bars) h += stripHtml(practise.bars, null, cl);
+    return h + '<p id="rcNote">Saving…</p><div class="goalrow" id="rcToday"></div><div class="acts" id="rcActs">' + actsHtml() + "</div>";
+  }
+
   function resultHtml() {
+    if (result.cleared) return clearedHtml();
     var acc = Math.round(session.accuracy() * 1000) / 10, stars = loop ? 0 : P.starsFor(acc);
     var head = loop ? "Loop finished" : "Finished";
     var title = loop ? esc(barsText(loop).replace(/^b/, "B")) + " clean " + session.cleanNeeded + " times in a row!" : stars >= 3 ? "Brilliant!" : stars ? "Well played!" : "Good practice";
@@ -1826,7 +1885,7 @@ body.tutor #toast{z-index:5}
     } else lines.push("Timing n/a in wait mode");
     var missed = Object.keys(session.wrongKeys).sort(function (a, b) { return session.wrongKeys[b] - session.wrongKeys[a] || a - b; }).slice(0, 3);
     if (missed.length) lines.push("Most missed: " + missed.map(function (n) { return "<b>" + P.noteName(Number(n)) + "</b> ×" + session.wrongKeys[n]; }).join(", "));
-    h += '<div class="stats">' + lines.join("<br>") + '</div><p id="rcNote">Saving…</p><div class="goalrow" id="rcToday"></div><div class="acts" id="rcActs">' + actsHtml() + "</div>";
+    h += '<div class="stats">' + lines.join("<br>") + "</div>" + (result.weak ? stripHtml(session.bars, result.weak) : "") + '<p id="rcNote">Saving…</p><div class="goalrow" id="rcToday"></div><div class="acts" id="rcActs">' + actsHtml() + "</div>";
     return h;
   }
 
@@ -1849,6 +1908,13 @@ body.tutor #toast{z-index:5}
     }
     note.innerHTML = html;
     if (r && r.today && !r.error) { resultGoal(r); if (r.goalJustMet) cue("goal"); }
+    // After a weak spot is cleared the history knows the next one (in this song, or the next worst anywhere).
+    if (result.cleared && r && r.today && r.today.weak && !result.nextAdded) {
+      result.nextAdded = true;
+      var w = r.today.weak;
+      result.actions.unshift({ id: "nextweak", label: "Next weak spot", pair: w, song: w.song });
+      $("rcActs").innerHTML = actsHtml();
+    }
   }
 
   // Today's goal under the result: the bar grows from where it was before this play.
@@ -1872,7 +1938,19 @@ body.tutor #toast{z-index:5}
     if (a.id === "again") { hideResult(); restart(); }
     else if (a.id === "next") { hideResult(); loadSong(P.stepSong(songs, songId, 1)); }
     else if (a.id === "stop") { hideResult(); setLoop(null); }
+    else if (a.id === "practise") { var bars = session.bars; hideResult(); startPractise(a.pair, bars); }
+    else if (a.id === "nextweak") { hideResult(); startPractise(a.pair, null); }
+    else if (a.id === "whole") { hideResult(); practise = null; setLoop(null); }
     else if (a.id === "nextbar") { var was = loop && loop.from; moveLoop(1); if (loop && loop.from === was) toast("That was the last bar"); }
+  }
+
+  // Loop a weak spot (the worst pair of bars from a play): bars is the play's slips, kept to show what got cleared.
+  // The pair may belong to another song (the Today screen offers it): that song loads first.
+  function startPractise(pair, bars) {
+    if (pair.song && pair.song !== songId) { pendingPractise = { pair: pair, bars: bars }; return loadSong(pair.song); }
+    practise = { song: songId, from: pair.from, to: pair.to, before: { wrong: pair.wrong, late: pair.late }, bars: bars, cleared: [] };
+    setLoop({ from: pair.from, to: pair.to });
+    if (practise) toast("Practise " + barsText(pair) + " · " + session.cleanNeeded + " clean in a row");
   }
 
   // The score counts up over 1.2 s once the first star has popped; with reduced motion it just shows.

@@ -235,10 +235,10 @@ async function pianoPost(url, req, res) {
     // The reply carries the song's best scores before and after, so the TV can say "new best".
     let play;
     const before = piano.historySummary(config.pianoHistory)[String(body && body.song)] || null;
-    const daysBefore = piano.todayStats(config.pianoHistory);
+    const daysBefore = piano.todayInfo(config.pianoHistory, config.songsDir);
     try { play = piano.addPlay(config.pianoHistory, body); } catch (e) { return json(res, 400, { error: e.message }); }
     const score = piano.historySummary(config.pianoHistory)[play.song];
-    const today = piano.todayStats(config.pianoHistory);
+    const today = piano.todayInfo(config.pianoHistory, config.songsDir);
     // goalJustMet: this play took today over the daily goal (the room light's warm cue).
     const goalJustMet = !daysBefore.goalMet && today.goalMet;
     broadcast("history", { play, score });
@@ -354,7 +354,7 @@ function pianoGet(url, qs, res) {
     return lesson ? json(res, lesson.error ? 422 : 200, lesson) : json(res, 404, { error: "no such lesson" });
   }
   if (url === "/api/piano/progress") return json(res, 200, { progress: lessonStore.readProgress(config.pianoProgress) });
-  if (url === "/api/piano/today") return json(res, 200, piano.todayStats(config.pianoHistory));
+  if (url === "/api/piano/today") return json(res, 200, piano.todayInfo(config.pianoHistory, config.songsDir));
   if (url === "/api/piano/calibration") return json(res, 200, { calibration: piano.readCalibration(config.pianoCalibration) });
   if (url === "/api/piano/light") return json(res, 200, bulb.info());
   if (url === "/api/piano/telemetry") return json(res, 200, telemetryStore.get());
