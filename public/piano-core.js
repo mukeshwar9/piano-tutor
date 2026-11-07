@@ -1043,6 +1043,62 @@
     return out;
   }
 
+  // ---------- days, streak and daily goal ----------
+
+  // The daily goal is playing for this many minutes, all playing counting: whole songs, loops and
+  // practice. The day streak counts days in a row with any play at all. Both come from the history
+  // (when each play ended and how long it took), in the machine's local days, so nothing more is stored.
+  var DAILY_GOAL_MIN = 10;
+  // One play counts for at most this long, so a game left paused overnight is not a day's practice.
+  var PLAY_CAP_MS = 30 * 60000;
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  // The local day n days from d (a Date or ms), at local midnight: calendar days, not 24 h steps.
+  function shiftDay(d, n) { d = new Date(d); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+  // Where the player is today, from the plays (history entries with `at` and `durationMs`) and now (ms).
+  // Returns { goalMin, minutesToday, goal (0-1 of the goal), goalMet, playedToday, streak, longest,
+  // minutesWeek, week, calendar }: streak is the days in a row up to today, or up to yesterday while
+  // today has no play yet; minutesWeek covers the last seven days; calendar is four weeks, Monday first,
+  // the last row holding today, each day { key, status: "goal" | "played" | "none" | "future", today }.
+  function dayStats(plays, now, goalMin) {
+    var goal = goalMin > 0 ? goalMin : DAILY_GOAL_MIN, goalMs = goal * 60000;
+    var ms = {}, played = {};
+    (plays || []).forEach(function (r) {
+      if (!(r.at > 0) || r.at > now) return;
+      var k = dayKey(new Date(r.at));
+      played[k] = true;
+      ms[k] = (ms[k] || 0) + Math.min(Math.max(0, r.durationMs || 0), PLAY_CAP_MS);
+    });
+    var today = shiftDay(now, 0), tk = dayKey(today), d = today, streak = 0;
+    if (!played[tk]) d = shiftDay(d, -1);
+    while (played[dayKey(d)]) { streak++; d = shiftDay(d, -1); }
+    var longest = 0, run = 0, prev = "", keys = Object.keys(played).sort();
+    keys.forEach(function (k) {
+      var parts = k.split("-");
+      run = prev && dayKey(shiftDay(new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])), -1)) === prev ? run + 1 : 1;
+      longest = Math.max(longest, run); prev = k;
+    });
+    var weekMs = 0;
+    for (var i = 0; i < 7; i++) weekMs += ms[dayKey(shiftDay(today, -i))] || 0;
+    var monday = shiftDay(today, -((today.getDay() + 6) % 7)), calendar = [];
+    for (var w = -3; w <= 0; w++) {
+      var row = [];
+      for (var c = 0; c < 7; c++) {
+        var day = shiftDay(monday, w * 7 + c), k2 = dayKey(day);
+        row.push({ key: k2, today: k2 === tk, status: day > today ? "future" : (ms[k2] || 0) >= goalMs ? "goal" : played[k2] ? "played" : "none" });
+      }
+      calendar.push(row);
+    }
+    var todayMs = ms[tk] || 0;
+    return {
+      goalMin: goal, minutesToday: Math.round(todayMs / 6000) / 10, goal: Math.min(1, todayMs / goalMs), goalMet: todayMs >= goalMs,
+      playedToday: !!played[tk], streak: streak, longest: Math.max(longest, streak), minutesWeek: Math.round(weekMs / 60000),
+      week: calendar[3], calendar: calendar,
+    };
+  }
+
   // "1 min 05 s" / "42 s" for the results card.
   function durationText(ms) {
     var s = Math.round(ms / 1000), m = Math.floor(s / 60);
@@ -1069,6 +1125,7 @@
 
   return {
     stepSong: stepSong, levelOf: levelOf,
+    DAILY_GOAL_MIN: DAILY_GOAL_MIN, PLAY_CAP_MS: PLAY_CAP_MS, dayKey: dayKey, shiftDay: shiftDay, dayStats: dayStats,
     NOTE_POINTS: NOTE_POINTS, COMBO_STEPS: COMBO_STEPS, STAR_ACCURACY: STAR_ACCURACY, comboMultiplier: comboMultiplier,
     timingPrecision: timingPrecision, notePoints: notePoints, starsFor: starsFor, scoreText: scoreText,
     MASTER_ACCURACY: MASTER_ACCURACY, playRecord: playRecord, validPlay: validPlay, isMasteredPlay: isMasteredPlay,

@@ -113,6 +113,19 @@ async function waitForServer() {
     r = await request("POST", "/api/piano/history", { song: "ode-to-joy", hand: "both", accuracy: 0.9, bestStreak: 12, correct: 30, wrong: 3, durationMs: 60000 });
     assert.strictEqual(r.status, 200, r.text);
     assert(fs.existsSync(path.join(dir, "piano-history.json")), "history sits next to the calibration");
+    // Today's goal and the day streak come from the history: the reply says when a play meets the goal.
+    assert.strictEqual(r.data.goalJustMet, false);
+    assert.strictEqual(r.data.today.streak, 1);
+    assert.strictEqual(r.data.today.minutesToday, 1);
+    r = await request("POST", "/api/piano/history", { song: "ode-to-joy", hand: "both", accuracy: 90, bestStreak: 12, correct: 30, wrong: 3, durationMs: 11 * 60000 });
+    assert.strictEqual(r.data.goalJustMet, true, "the play that takes the day over ten minutes");
+    assert.strictEqual(r.data.today.goalMet, true);
+    r = await request("POST", "/api/piano/history", { song: "ode-to-joy", hand: "both", accuracy: 90, bestStreak: 12, correct: 30, wrong: 3, durationMs: 60000 });
+    assert.strictEqual(r.data.goalJustMet, false, "only the first play over the goal says so");
+    r = await request("GET", "/api/piano/today");
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.goalMet, true);
+    assert.strictEqual(r.data.calendar.length, 4);
 
     // The relay: link page notes reach the TV; the wall, on another origin, hears switch requests.
     const tv = listen("tv"), wall = listen("wall");

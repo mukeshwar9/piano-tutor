@@ -50,6 +50,24 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
 #panel.on{display:block}
 #scoreSub{font-size:.95rem;color:var(--amber);min-height:1.2rem}
+/* The daily goal bar grows with transform only; with reduced motion it just is. */
+.meter{height:.5rem;border-radius:.25rem;background:rgba(255,255,255,.14);overflow:hidden;margin:.3rem 0}
+.meter i{display:block;height:100%;width:100%;background:var(--green);transform-origin:left;transform:scaleX(0);transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+.meter.met i{background:var(--amber)}
+#todayBox .sub b{color:var(--txt)}
+#todayBox .sub b.met{color:var(--amber)}
+#result .goalrow{margin-top:.5rem;font-size:1rem;color:var(--txt2)}
+#result .goalrow .meter{width:60%;margin:.3rem auto}
+#progress .pstats{display:flex;gap:2.2rem;align-items:center;margin:.2rem 0 .7rem}
+#progress .pstats .n b{display:block;font-size:1.9rem;font-weight:800;color:var(--txt);line-height:1.1}
+#progress .pstats .n span{font-size:.8rem;color:var(--mut);text-transform:uppercase;letter-spacing:.1em}
+#progress .cal{display:grid;grid-template-columns:repeat(7,1.2rem);gap:.25rem;margin-left:auto}
+#progress .cal i{width:1.2rem;height:1.2rem;border-radius:.3rem;border:.12rem solid var(--line2)}
+#progress .cal i.goal{background:var(--green);border-color:var(--green)}
+#progress .cal i.played{border-color:var(--green)}
+#progress .cal i.future{border-color:transparent;background:var(--line)}
+#progress .cal i.today{box-shadow:0 0 0 .15rem var(--blue)}
+@media (prefers-reduced-motion:reduce){.meter i{transition:none}}
 #panel h1{font-size:1.7rem;font-weight:800;margin-bottom:.4rem}
 #panel p{font-size:1.05rem;color:var(--txt2);line-height:1.45}
 #panel p b{color:var(--txt)}
@@ -137,6 +155,7 @@ body.tutor #toast{z-index:5}
 <div id="left" class="side">
   <div id="title">Loading song…</div>
   <div id="best"></div>
+  <div id="todayBox"><div class="lbl">Today</div><div class="meter" id="goalMeter"><i id="goalFill"></i></div><div class="sub" id="goalSub"></div></div>
   <div><div class="lbl">Bar</div><div class="val" id="bar">-</div></div>
   <div><div class="lbl">Mode</div><div class="sub" id="mode">Wait mode · right hand</div></div>
   <div id="status"></div>
@@ -223,6 +242,7 @@ body.tutor #toast{z-index:5}
   var playStart = 0;        // Date.now() of the first key of this play, 0 before it starts
   var lastResult = null;    // server reply for the play that just finished: { play, score, previous }
   var progressOn = false, history = null;
+  var today = null;         // the day's goal and streak from the server (see PianoCore.dayStats), null until it arrives
   var view = rememberedView();        // notes | both | sheet
   var sheet = null;         // the current song as notation, with its rendered pages
   var marks = {};           // song beat of each step played this time through -> "ok" | "bad"
@@ -876,6 +896,26 @@ body.tutor #toast{z-index:5}
     el.innerHTML = sc && sc.fullPlays ? '<b class="stars">' + starsText(sc.bestStars) + "</b> · best " + P.scoreText(sc.bestScore) + " · " + P.percentText(sc.bestAccuracy) + (sc.mastered ? " · <b>mastered</b>" : "") : "";
   }
 
+  // Today's goal and day streak: asked for at the start and after each finished play, shown on the left.
+  function loadToday() {
+    getJson("/api/piano/today", function (err, d) { if (!err && d) { today = d; showToday(); if (progressOn) renderProgress(); } });
+  }
+
+  function goalText(t) {
+    return t.goalMet ? "<b class=met>Goal met</b>" : "<b>" + minutesText(t.minutesToday) + "</b> of " + t.goalMin + " min";
+  }
+  function minutesText(m) { return Math.round(m) === m ? String(m) : m.toFixed(1); }
+  function streakText(t) { return t.streak + (t.streak === 1 ? " day" : " days") + " in a row"; }
+
+  function showToday() {
+    var el = $("todayBox");
+    if (!today) { el.style.display = "none"; return; }
+    el.style.display = "";
+    $("goalMeter").className = "meter" + (today.goalMet ? " met" : "");
+    $("goalFill").style.transform = "scaleX(" + today.goal + ")";
+    $("goalSub").innerHTML = goalText(today) + (today.streak ? " · " + streakText(today) : "");
+  }
+
   // A finished play goes to the server, which keeps the history; the reply says whether it was a new best.
   function saveResult() {
     var rec = P.playRecord(song, session, { mode: playMode, speed: playSpeed, durationMs: Date.now() - (playStart || Date.now()) });
@@ -887,6 +927,7 @@ body.tutor #toast{z-index:5}
         lastResult = r;
         for (var i = 0; i < songs.length; i++) if (songs[i].id === rec.song) songs[i].score = r.score;
         history = null;
+        if (r.today) { if (result && result.session === s) result.todayBefore = today; today = r.today; showToday(); }
       }
       if (session === s && s.done) { resultUpdate(); showBest(); }
     });
@@ -896,6 +937,7 @@ body.tutor #toast{z-index:5}
     progressOn = on == null ? !progressOn : on;
     if (!progressOn) { $("progress").className = ""; return; }
     renderProgress();
+    loadToday();
     getJson("/api/piano/history?limit=8", function (err, h) {
       if (err) return;
       history = h;
@@ -928,7 +970,14 @@ body.tutor #toast{z-index:5}
         return esc(p.title || p.song) + " · " + p.hand + " hand" + (p.hand === "both" ? "s" : "") + " · " + p.mode + (p.loop ? " · " + esc(barsText(p.loop)) : "") + " · " + P.percentText(p.accuracy) + (p.timing ? " · timing " + P.timingText(p.timing) : "") + " · " + dateText(p.at);
       }).join("<br>") + "</div>";
     }
-    $("progress").innerHTML = "<h1>Progress</h1><div class=sub>Stars: 1 at " + P.STAR_ACCURACY[0] + "%, 2 at " + P.STAR_ACCURACY[1] + "%, 3 at " + P.STAR_ACCURACY[2] + "% accuracy. Mastered: the whole song in both hands at " + P.MASTER_ACCURACY + "% or better. Timing: notes within " + P.TEMPO_ON_MS + " ms of the beat, tempo mode only. <b>OK</b> or <b>Back</b> closes.</div>" +
+    var mastered = 0;
+    songs.forEach(function (sg) { var sc = scores[sg.id] || sg.score; if (sc && sc.mastered) mastered++; });
+    var stats = "";
+    if (today) {
+      stats = '<div class="pstats"><div class="n"><b>' + today.streak + "</b><span>day streak</span></div><div class=n><b>" + today.longest + "</b><span>longest</span></div><div class=n><b>" + today.minutesWeek + "</b><span>min this week</span></div><div class=n><b>" + mastered + "</b><span>mastered</span></div>" +
+        '<div class="cal" title="Solid: goal met. Outline: played. Ring: today.">' + today.calendar.map(function (row) { return row.map(function (c) { return '<i class="' + c.status + (c.today ? " today" : "") + '"></i>'; }).join(""); }).join("") + "</div></div>";
+    }
+    $("progress").innerHTML = "<h1>Progress</h1><div class=sub>Stars: 1 at " + P.STAR_ACCURACY[0] + "%, 2 at " + P.STAR_ACCURACY[1] + "%, 3 at " + P.STAR_ACCURACY[2] + "% accuracy. Mastered: the whole song in both hands at " + P.MASTER_ACCURACY + "% or better. Timing: notes within " + P.TEMPO_ON_MS + " ms of the beat, tempo mode only. <b>OK</b> or <b>Back</b> closes.</div>" + stats +
       "<table><tr><th>Song</th><th>Stars</th><th>Best</th><th>Score</th><th>Timing</th><th>Combo</th><th>Plays</th><th></th></tr>" + rows + "</table>" + recent;
     $("progress").className = "on";
   }
@@ -1665,7 +1714,7 @@ body.tutor #toast{z-index:5}
     } else lines.push("Timing n/a in wait mode");
     var missed = Object.keys(session.wrongKeys).sort(function (a, b) { return session.wrongKeys[b] - session.wrongKeys[a] || a - b; }).slice(0, 3);
     if (missed.length) lines.push("Most missed: " + missed.map(function (n) { return "<b>" + P.noteName(Number(n)) + "</b> ×" + session.wrongKeys[n]; }).join(", "));
-    h += '<div class="stats">' + lines.join("<br>") + '</div><p id="rcNote">Saving…</p><div class="acts" id="rcActs">' + actsHtml() + "</div>";
+    h += '<div class="stats">' + lines.join("<br>") + '</div><p id="rcNote">Saving…</p><div class="goalrow" id="rcToday"></div><div class="acts" id="rcActs">' + actsHtml() + "</div>";
     return h;
   }
 
@@ -1687,6 +1736,16 @@ body.tutor #toast{z-index:5}
       if (fresh) { $("rcBadge").className = "badge show"; $("result").className = "on best"; }
     }
     note.innerHTML = html;
+    if (r && r.today && !r.error) resultGoal(r);
+  }
+
+  // Today's goal under the result: the bar grows from where it was before this play.
+  function resultGoal(r) {
+    var t = r.today, before = result.todayBefore ? result.todayBefore.goal : 0, el = $("rcToday");
+    if (!el) return;
+    el.innerHTML = (r.goalJustMet ? '<span class="gold">Daily goal reached!</span> ' : "") + "Today " + goalText(t) + (t.streak ? " · " + streakText(t) : "") +
+      '<div class="meter' + (t.goalMet ? " met" : "") + '"><i id="rcGoal" style="transform:scaleX(' + (reducedMotion() ? t.goal : before) + ')"></i></div>';
+    if (!reducedMotion()) requestAnimationFrame(function () { requestAnimationFrame(function () { var g = $("rcGoal"); if (g) g.style.transform = "scaleX(" + t.goal + ")"; }); });
   }
 
   function resultMove(d) {
@@ -2311,6 +2370,7 @@ body.tutor #toast{z-index:5}
   status();
   getJson("/api/config", function (err, c) { if (!err && c) wallUrl = TVSwitch.resolveUrl(c.wallUrl, location.hostname); });
   loadSong();
+  loadToday();
   connect();
   if (/[?&]learn\b/.test(location.search)) openTutor();
   requestAnimationFrame(frame);

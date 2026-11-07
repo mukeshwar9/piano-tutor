@@ -172,7 +172,10 @@ function addPlay(file, input, now = Date.now()) {
   return play;
 }
 
+// Today's goal and the day streak from the history (see core.dayStats).
+function todayStats(file, now = Date.now()) { return core.dayStats(readHistory(file), now); }
+
 // Best scores keyed by song id (see core.summarizeHistory).
 function historySummary(file) { return core.summarizeHistory(readHistory(file)); }
 
-module.exports = { core, loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration, readHistory, addPlay, historySummary, MAX_PLAYS };
+module.exports = { core, loadSongs, songSummary, forgetImport, readImportSettings, writeImportSettings, safeFileName, saveUpload, folderSignature, readCalibration, writeCalibration, readHistory, addPlay, historySummary, todayStats, MAX_PLAYS };
