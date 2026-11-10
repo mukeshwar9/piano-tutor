@@ -46,7 +46,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #count{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-size:9rem;font-weight:800;color:var(--txt);opacity:0;pointer-events:none;text-shadow:0 .3rem 1.2rem rgba(0,0,0,.6)}
 #count.on{opacity:.9}
 #loopVal{font-size:2.2rem;letter-spacing:.15em;color:var(--green)}
-#keys{font-size:.8rem;color:var(--txt2);opacity:.65;line-height:1.5}
+#keys{font-size:.95rem;color:var(--txt2);opacity:.85;line-height:1.5}
 #panel{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);max-width:46rem;background:rgba(19,26,39,.95);border:.12rem solid var(--blue);border-radius:.8rem;padding:1rem 1.6rem;text-align:center;display:none}
 #panel.on{display:block}
 #scoreSub{font-size:.95rem;color:var(--amber);min-height:1.2rem}
@@ -75,7 +75,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #panel .warn{color:var(--amber);margin-top:.4rem}
 #panel .gold{color:var(--amber)}
 #best{font-size:.95rem;color:var(--txt2)}#best b{color:var(--amber)}#best b.stars{letter-spacing:.1em}
-#progress{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(60rem,92%);max-height:calc(100% - 2.4rem);overflow:hidden;background:rgba(19,26,39,.97);border:.12rem solid var(--amber);border-radius:.8rem;padding:1rem 1.6rem;display:none}
+#progress{position:absolute;left:50%;top:1.2rem;transform:translateX(-50%);width:min(60rem,92%);max-height:calc(100% - 2.4rem);overflow:hidden;background:#131a27;box-shadow:0 0 0 100vmax rgba(8,11,18,.88);border:.12rem solid var(--amber);border-radius:.8rem;padding:1rem 1.6rem;display:none}
 #progress.on{display:block}
 #progress h1{font-size:1.7rem;font-weight:800;margin-bottom:.2rem}
 #progress .sub{font-size:.95rem;color:var(--txt2);margin-bottom:.6rem}
@@ -149,7 +149,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 #pause li.foc small{color:var(--txt2)}
 #pause li.nudge-up{animation:nudgeup .16s ease}
 #pause li.nudge-down{animation:nudgedown .16s ease}
-#pause .keys{font-size:.85rem;color:var(--mut);margin-top:.7rem}
+#pause .keys{font-size:.95rem;color:var(--mut);margin-top:.7rem}
 @keyframes sheetin{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 @keyframes nudgeup{50%{transform:translateX(.4rem) translateY(-.25rem)}}
 @keyframes nudgedown{50%{transform:translateX(.4rem) translateY(.25rem)}}
